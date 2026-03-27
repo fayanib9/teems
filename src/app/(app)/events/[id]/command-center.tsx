@@ -80,7 +80,7 @@ type Props = {
   canDelete: boolean
 }
 
-type Tab = 'overview' | 'tasks' | 'timeline' | 'team' | 'vendors' | 'speakers' | 'exhibitors' | 'documents' | 'budget' | 'event_day'
+type Tab = 'overview' | 'tasks' | 'timeline' | 'team' | 'vendors' | 'speakers' | 'exhibitors' | 'documents' | 'sessions' | 'booths' | 'budget' | 'event_day'
 
 const TABS: { key: Tab; label: string; icon: typeof CalendarDays }[] = [
   { key: 'overview', label: 'Overview', icon: CalendarDays },
@@ -90,6 +90,8 @@ const TABS: { key: Tab; label: string; icon: typeof CalendarDays }[] = [
   { key: 'vendors', label: 'Vendors', icon: Truck },
   { key: 'speakers', label: 'Speakers', icon: Mic },
   { key: 'exhibitors', label: 'Exhibitors', icon: Presentation },
+  { key: 'sessions', label: 'Agenda', icon: Clock },
+  { key: 'booths', label: 'Booths', icon: MapPin },
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'budget', label: 'Budget', icon: DollarSign },
   { key: 'event_day', label: 'Event Day', icon: PlayCircle },
@@ -154,7 +156,7 @@ export function EventCommandCenter({ event, counts, recentTasks, teamMembers, ca
                   className="text-xs font-medium px-2 py-0.5 rounded-full"
                   style={{
                     backgroundColor: `${event.event_type_color}15`,
-                    color: event.event_type_color || '#7C3AED',
+                    color: event.event_type_color || '#312C6A',
                   }}
                 >
                   {event.event_type_name}
@@ -261,12 +263,14 @@ export function EventCommandCenter({ event, counts, recentTasks, teamMembers, ca
           taskCount={counts.tasks}
         />
       )}
-      {activeTab === 'timeline' && <PlaceholderTab title="Timeline" description="Timeline and milestones view coming soon. Track your event preparation progress with visual milestones." />}
+      {activeTab === 'timeline' && <TimelineTab eventId={event.id} />}
       {activeTab === 'team' && <TeamTab teamMembers={teamMembers} />}
-      {activeTab === 'vendors' && <PlaceholderTab title="Vendors" description="Vendor management will be built in Phase 5. Assign vendors, track contracts, and monitor delivery status." />}
-      {activeTab === 'speakers' && <PlaceholderTab title="Speakers" description="Speaker management will be built in Phase 5. Manage speaker profiles, session assignments, and logistics." />}
-      {activeTab === 'exhibitors' && <PlaceholderTab title="Exhibitors" description="Exhibitor management will be built in Phase 5. Manage booth assignments, packages, and requirements." />}
-      {activeTab === 'documents' && <PlaceholderTab title="Documents" description="Document management will be built in Phase 4. Upload files, organize by category, and track versions." />}
+      {activeTab === 'vendors' && <EntityAssignTab eventId={event.id} type="vendors" />}
+      {activeTab === 'speakers' && <EntityAssignTab eventId={event.id} type="speakers" />}
+      {activeTab === 'exhibitors' && <EntityAssignTab eventId={event.id} type="exhibitors" />}
+      {activeTab === 'sessions' && <SessionsTab eventId={event.id} />}
+      {activeTab === 'booths' && <BoothsTab eventId={event.id} />}
+      {activeTab === 'documents' && <EventDocumentsTab eventId={event.id} />}
       {activeTab === 'budget' && <BudgetTab event={event} />}
       {activeTab === 'event_day' && <EventDayTab eventId={event.id} />}
 
@@ -594,14 +598,689 @@ function EventTasksTab({ eventId, recentTasks, taskCount }: { eventId: number; r
   )
 }
 
-function PlaceholderTab({ title, description }: { title: string; description: string }) {
+// ─── Timeline Tab ────────────────────────────────────────────
+
+type MilestoneData = {
+  id: number
+  title: string
+  description: string | null
+  due_date: string
+  status: string | null
+  sort_order: number | null
+}
+
+function TimelineTab({ eventId }: { eventId: number }) {
+  const { toast } = useToast()
+  const [milestones, setMilestones] = useState<MilestoneData[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [msTitle, setMsTitle] = useState('')
+  const [msDesc, setMsDesc] = useState('')
+  const [msDue, setMsDue] = useState('')
+
+  useState(() => {
+    fetch(`/api/milestones?event_id=${eventId}`)
+      .then(r => r.json())
+      .then(data => { setMilestones(data.data || []); setLoaded(true) })
+  })
+
+  async function addMilestone(e: React.FormEvent) {
+    e.preventDefault()
+    if (!msTitle.trim() || !msDue) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/milestones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: eventId, title: msTitle.trim(), description: msDesc || null, due_date: msDue }),
+      })
+      if (!res.ok) throw new Error('Failed')
+      const { data } = await res.json()
+      setMilestones(prev => [...prev, data].sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime()))
+      setMsTitle(''); setMsDesc(''); setMsDue('')
+      setShowAdd(false)
+      toast({ type: 'success', message: 'Milestone added' })
+    } catch {
+      toast({ type: 'error', message: 'Failed to add milestone' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!loaded) return <div className="text-center py-12"><p className="text-sm text-text-tertiary">Loading...</p></div>
+
+  const today = new Date()
+
   return (
-    <div className="text-center py-16">
-      <div className="rounded-full bg-surface-tertiary p-4 inline-block mb-3">
-        <Clock className="h-8 w-8 text-text-tertiary" />
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-text-secondary">{milestones.length} milestone{milestones.length !== 1 ? 's' : ''}</p>
+        <Button size="sm" onClick={() => setShowAdd(true)}><Plus className="h-3.5 w-3.5" /> Add Milestone</Button>
       </div>
-      <h3 className="text-base font-medium text-text-primary mb-1">{title}</h3>
-      <p className="text-sm text-text-secondary max-w-md mx-auto">{description}</p>
+
+      {showAdd && (
+        <form onSubmit={addMilestone} className="bg-surface rounded-xl border border-border p-4 space-y-3">
+          <input type="text" value={msTitle} onChange={e => setMsTitle(e.target.value)} placeholder="Milestone title..."
+            autoFocus className="w-full h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+          <textarea value={msDesc} onChange={e => setMsDesc(e.target.value)} placeholder="Description (optional)..." rows={2}
+            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+          <input type="date" value={msDue} onChange={e => setMsDue(e.target.value)}
+            className="h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" size="sm" type="button" onClick={() => setShowAdd(false)}>Cancel</Button>
+            <Button size="sm" type="submit" loading={saving}>Add</Button>
+          </div>
+        </form>
+      )}
+
+      {milestones.length === 0 && !showAdd ? (
+        <div className="text-center py-12">
+          <Milestone className="h-8 w-8 text-text-tertiary mx-auto mb-2" />
+          <p className="text-sm text-text-secondary">No milestones yet. Add milestones to track key dates.</p>
+        </div>
+      ) : (
+        <div className="relative pl-6">
+          {/* Timeline line */}
+          <div className="absolute left-2.5 top-2 bottom-2 w-0.5 bg-border" />
+          <div className="space-y-4">
+            {milestones.map(ms => {
+              const due = new Date(ms.due_date)
+              const isPast = due < today && ms.status !== 'completed'
+              const isComplete = ms.status === 'completed'
+              return (
+                <div key={ms.id} className="relative">
+                  <div className={`absolute -left-3.5 w-3 h-3 rounded-full border-2 ${
+                    isComplete ? 'bg-green-500 border-green-500' :
+                    isPast ? 'bg-red-500 border-red-500' :
+                    'bg-white border-primary-500'
+                  }`} style={{ top: '4px' }} />
+                  <div className={`bg-surface rounded-lg border p-3 ${
+                    isComplete ? 'border-green-200' : isPast ? 'border-red-200' : 'border-border'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <h4 className={`text-sm font-medium ${isComplete ? 'text-green-700 line-through' : 'text-text-primary'}`}>{ms.title}</h4>
+                      <span className={`text-xs font-medium ${isPast ? 'text-red-500' : isComplete ? 'text-green-500' : 'text-text-tertiary'}`}>
+                        {due.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    </div>
+                    {ms.description && <p className="text-xs text-text-secondary mt-1">{ms.description}</p>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Entity Assignment Tab (Vendors / Speakers / Exhibitors) ─
+
+type EntityConfig = {
+  apiPath: string
+  nameField: string
+  subtitleField: string
+  extraFields: { key: string; label: string }[]
+  allApiPath: string
+  allIdField: string
+  allNameField: string
+}
+
+const ENTITY_CONFIGS: Record<string, EntityConfig> = {
+  vendors: {
+    apiPath: 'vendors',
+    nameField: 'vendor_name',
+    subtitleField: 'vendor_category',
+    extraFields: [
+      { key: 'service_description', label: 'Service' },
+      { key: 'vendor_email', label: 'Email' },
+      { key: 'vendor_phone', label: 'Phone' },
+    ],
+    allApiPath: '/api/vendors',
+    allIdField: 'id',
+    allNameField: 'name',
+  },
+  speakers: {
+    apiPath: 'speakers',
+    nameField: 'speaker_name',
+    subtitleField: 'speaker_organization',
+    extraFields: [
+      { key: 'speaker_title', label: 'Title' },
+      { key: 'role', label: 'Role' },
+      { key: 'speaker_email', label: 'Email' },
+    ],
+    allApiPath: '/api/speakers',
+    allIdField: 'id',
+    allNameField: 'name',
+  },
+  exhibitors: {
+    apiPath: 'exhibitors',
+    nameField: 'exhibitor_name',
+    subtitleField: 'exhibitor_industry',
+    extraFields: [
+      { key: 'package_type', label: 'Package' },
+      { key: 'booth_number', label: 'Booth' },
+      { key: 'exhibitor_email', label: 'Email' },
+    ],
+    allApiPath: '/api/exhibitors',
+    allIdField: 'id',
+    allNameField: 'name',
+  },
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-amber-100 text-amber-700',
+  confirmed: 'bg-green-100 text-green-700',
+  invited: 'bg-blue-100 text-blue-700',
+  declined: 'bg-red-100 text-red-700',
+  cancelled: 'bg-gray-100 text-gray-700',
+}
+
+function EntityAssignTab({ eventId, type }: { eventId: number; type: string }) {
+  const { toast } = useToast()
+  const config = ENTITY_CONFIGS[type]
+  const [items, setItems] = useState<Record<string, unknown>[]>([])
+  const [allEntities, setAllEntities] = useState<{ id: number; name: string }[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+  const [selectedId, setSelectedId] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useState(() => {
+    Promise.all([
+      fetch(`/api/events/${eventId}/${config.apiPath}`).then(r => r.json()),
+      fetch(config.allApiPath).then(r => r.json()),
+    ]).then(([assigned, all]) => {
+      setItems(Array.isArray(assigned) ? assigned : assigned.data || [])
+      const allData = Array.isArray(all) ? all : all.data || []
+      setAllEntities(allData.map((e: Record<string, unknown>) => ({ id: e[config.allIdField] as number, name: e[config.allNameField] as string })))
+      setLoaded(true)
+    })
+  })
+
+  const assignedIds = new Set(items.map(i => {
+    const key = type === 'vendors' ? 'vendor_id' : type === 'speakers' ? 'speaker_id' : 'exhibitor_id'
+    return i[key] as number
+  }))
+  const available = allEntities.filter(e => !assignedIds.has(e.id))
+
+  async function handleAssign(e: React.FormEvent) {
+    e.preventDefault()
+    if (!selectedId) return
+    setSaving(true)
+    const idField = type === 'vendors' ? 'vendor_id' : type === 'speakers' ? 'speaker_id' : 'exhibitor_id'
+    try {
+      const res = await fetch(`/api/events/${eventId}/${config.apiPath}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [idField]: Number(selectedId) }),
+      })
+      if (!res.ok) throw new Error('Failed')
+      toast({ type: 'success', message: 'Assigned successfully' })
+      setSelectedId('')
+      setShowAdd(false)
+      // Reload
+      const data = await fetch(`/api/events/${eventId}/${config.apiPath}`).then(r => r.json())
+      setItems(Array.isArray(data) ? data : data.data || [])
+    } catch {
+      toast({ type: 'error', message: 'Failed to assign' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleRemove(assignmentId: number) {
+    try {
+      await fetch(`/api/events/${eventId}/${config.apiPath}?assignment_id=${assignmentId}`, { method: 'DELETE' })
+      setItems(prev => prev.filter(i => (i.id as number) !== assignmentId))
+      toast({ type: 'success', message: 'Removed' })
+    } catch {
+      toast({ type: 'error', message: 'Failed to remove' })
+    }
+  }
+
+  if (!loaded) return <div className="text-center py-12"><p className="text-sm text-text-tertiary">Loading...</p></div>
+
+  const Icon = type === 'vendors' ? Truck : type === 'speakers' ? Mic : Presentation
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-text-secondary">{items.length} assigned</p>
+        <Button size="sm" onClick={() => setShowAdd(true)} disabled={available.length === 0}>
+          <Plus className="h-3.5 w-3.5" /> Assign {type.slice(0, -1)}
+        </Button>
+      </div>
+
+      {showAdd && available.length > 0 && (
+        <form onSubmit={handleAssign} className="bg-surface rounded-xl border border-border p-4 flex gap-2">
+          <select value={selectedId} onChange={e => setSelectedId(e.target.value)}
+            className="flex-1 h-9 rounded-md border border-border bg-surface px-3 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent appearance-none">
+            <option value="">Select {type.slice(0, -1)}...</option>
+            {available.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+          <Button size="sm" type="submit" loading={saving}>Assign</Button>
+          <Button variant="outline" size="sm" type="button" onClick={() => setShowAdd(false)}>Cancel</Button>
+        </form>
+      )}
+
+      {items.length === 0 && !showAdd ? (
+        <div className="text-center py-12">
+          <Icon className="h-8 w-8 text-text-tertiary mx-auto mb-2" />
+          <p className="text-sm text-text-secondary">No {type} assigned to this event yet.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {items.map(item => {
+            const name = item[config.nameField] as string
+            const subtitle = item[config.subtitleField] as string | null
+            const status = item.status as string | null
+            return (
+              <div key={item.id as number} className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface hover:border-primary-200 transition-colors">
+                <div className="h-9 w-9 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center shrink-0">
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-text-primary truncate">{name}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {subtitle && <span className="text-xs text-text-tertiary">{subtitle}</span>}
+                    {config.extraFields.slice(0, 1).map(f => {
+                      const val = item[f.key] as string | null
+                      return val ? <span key={f.key} className="text-xs text-text-tertiary">· {val}</span> : null
+                    })}
+                  </div>
+                </div>
+                {status && (
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[status] || 'bg-gray-100 text-gray-700'}`}>
+                    {status}
+                  </span>
+                )}
+                <button onClick={() => handleRemove(item.id as number)} className="text-red-400 hover:text-red-600 cursor-pointer p-1">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Event Documents Tab ─────────────────────────────────────
+
+type DocData = {
+  id: number
+  title: string
+  file_name: string
+  file_path: string
+  file_size: number | null
+  category: string | null
+  created_at: string | null
+}
+
+function EventDocumentsTab({ eventId }: { eventId: number }) {
+  const { toast } = useToast()
+  const [docs, setDocs] = useState<DocData[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useState(() => {
+    fetch(`/api/documents?event_id=${eventId}`)
+      .then(r => r.json())
+      .then(data => { setDocs(data.data || data); setLoaded(true) })
+  })
+
+  if (!loaded) return <div className="text-center py-12"><p className="text-sm text-text-tertiary">Loading...</p></div>
+
+  function formatSize(bytes: number | null) {
+    if (!bytes) return ''
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / 1048576).toFixed(1)} MB`
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-text-secondary">{docs.length} document{docs.length !== 1 ? 's' : ''}</p>
+        <Link href={`/documents?event_id=${eventId}`}>
+          <Button variant="outline" size="sm"><FileText className="h-3.5 w-3.5" /> Manage in Library</Button>
+        </Link>
+      </div>
+
+      {docs.length === 0 ? (
+        <div className="text-center py-12">
+          <FileText className="h-8 w-8 text-text-tertiary mx-auto mb-2" />
+          <p className="text-sm text-text-secondary">No documents linked to this event.</p>
+          <Link href="/documents" className="text-xs text-primary-500 hover:text-primary-600 mt-1 inline-block">
+            Go to Document Library →
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {docs.map(doc => (
+            <div key={doc.id} className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface hover:border-primary-200 transition-colors">
+              <div className="h-9 w-9 rounded bg-primary-50 flex items-center justify-center shrink-0">
+                <FileText className="h-4 w-4 text-primary-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-text-primary truncate">{doc.title}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-xs text-text-tertiary">{doc.file_name}</span>
+                  {doc.file_size && <span className="text-xs text-text-tertiary">· {formatSize(doc.file_size)}</span>}
+                  {doc.category && <span className="text-xs text-text-tertiary">· {doc.category}</span>}
+                </div>
+              </div>
+              <a href={`/api/files/${doc.file_path}`} target="_blank" rel="noopener noreferrer"
+                className="text-primary-500 hover:text-primary-600 p-1">
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Sessions / Agenda Tab ───────────────────────────────────
+
+type SessionData = {
+  id: number
+  title: string
+  description: string | null
+  session_type: string | null
+  date: string
+  start_time: string
+  end_time: string
+  location: string | null
+  capacity: number | null
+  status: string | null
+}
+
+const SESSION_TYPES = ['keynote', 'panel', 'workshop', 'breakout', 'networking', 'other']
+
+function SessionsTab({ eventId }: { eventId: number }) {
+  const { toast } = useToast()
+  const [sessionsList, setSessionsList] = useState<SessionData[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [sTitle, setSTitle] = useState('')
+  const [sType, setSType] = useState('')
+  const [sDate, setSDate] = useState('')
+  const [sStart, setSStart] = useState('')
+  const [sEnd, setSEnd] = useState('')
+  const [sLocation, setSLocation] = useState('')
+  const [sCapacity, setSCapacity] = useState('')
+
+  useState(() => {
+    fetch(`/api/events/${eventId}/sessions`)
+      .then(r => r.json())
+      .then(data => { setSessionsList(Array.isArray(data) ? data : data.data || []); setLoaded(true) })
+  })
+
+  async function addSession(e: React.FormEvent) {
+    e.preventDefault()
+    if (!sTitle.trim() || !sDate || !sStart || !sEnd) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/events/${eventId}/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: sTitle.trim(),
+          session_type: sType || null,
+          date: sDate,
+          start_time: sStart,
+          end_time: sEnd,
+          location: sLocation || null,
+          capacity: sCapacity ? Number(sCapacity) : null,
+        }),
+      })
+      if (!res.ok) throw new Error('Failed')
+      const newSession = await res.json()
+      setSessionsList(prev => [...prev, newSession].sort((a, b) => {
+        const d = new Date(a.date).getTime() - new Date(b.date).getTime()
+        return d !== 0 ? d : a.start_time.localeCompare(b.start_time)
+      }))
+      setSTitle(''); setSType(''); setSDate(''); setSStart(''); setSEnd(''); setSLocation(''); setSCapacity('')
+      setShowAdd(false)
+      toast({ type: 'success', message: 'Session added' })
+    } catch {
+      toast({ type: 'error', message: 'Failed to add session' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!loaded) return <div className="text-center py-12"><p className="text-sm text-text-tertiary">Loading...</p></div>
+
+  // Group by date
+  const byDate = sessionsList.reduce<Record<string, SessionData[]>>((acc, s) => {
+    const d = new Date(s.date).toISOString().split('T')[0]
+    if (!acc[d]) acc[d] = []
+    acc[d].push(s)
+    return acc
+  }, {})
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-text-secondary">{sessionsList.length} session{sessionsList.length !== 1 ? 's' : ''}</p>
+        <Button size="sm" onClick={() => setShowAdd(true)}><Plus className="h-3.5 w-3.5" /> Add Session</Button>
+      </div>
+
+      {showAdd && (
+        <form onSubmit={addSession} className="bg-surface rounded-xl border border-border p-4 space-y-3">
+          <input type="text" value={sTitle} onChange={e => setSTitle(e.target.value)} placeholder="Session title..."
+            autoFocus className="w-full h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <select value={sType} onChange={e => setSType(e.target.value)}
+              className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent appearance-none">
+              <option value="">Type</option>
+              {SESSION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <input type="date" value={sDate} onChange={e => setSDate(e.target.value)}
+              className="h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+            <input type="time" value={sStart} onChange={e => setSStart(e.target.value)} placeholder="Start"
+              className="h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+            <input type="time" value={sEnd} onChange={e => setSEnd(e.target.value)} placeholder="End"
+              className="h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input type="text" value={sLocation} onChange={e => setSLocation(e.target.value)} placeholder="Location"
+              className="h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+            <input type="number" value={sCapacity} onChange={e => setSCapacity(e.target.value)} placeholder="Capacity"
+              className="h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" size="sm" type="button" onClick={() => setShowAdd(false)}>Cancel</Button>
+            <Button size="sm" type="submit" loading={saving}>Add</Button>
+          </div>
+        </form>
+      )}
+
+      {sessionsList.length === 0 && !showAdd ? (
+        <div className="text-center py-12">
+          <Clock className="h-8 w-8 text-text-tertiary mx-auto mb-2" />
+          <p className="text-sm text-text-secondary">No sessions yet. Build your event agenda.</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([dateStr, dateSessions]) => (
+            <div key={dateStr}>
+              <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-2">
+                {new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </h3>
+              <div className="space-y-2">
+                {dateSessions.map(s => (
+                  <div key={s.id} className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface">
+                    <div className="text-center shrink-0 w-16">
+                      <p className="text-sm font-medium text-primary-600">{s.start_time}</p>
+                      <p className="text-xs text-text-tertiary">{s.end_time}</p>
+                    </div>
+                    <div className="w-px h-8 bg-border shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-text-primary truncate">{s.title}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {s.session_type && (
+                          <span className="text-xs bg-primary-50 text-primary-700 px-1.5 py-0.5 rounded capitalize">{s.session_type}</span>
+                        )}
+                        {s.location && <span className="text-xs text-text-tertiary flex items-center gap-1"><MapPin className="h-3 w-3" /> {s.location}</span>}
+                        {s.capacity && <span className="text-xs text-text-tertiary flex items-center gap-1"><Users className="h-3 w-3" /> {s.capacity}</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Booths Tab ──────────────────────────────────────────────
+
+type BoothData = {
+  id: number
+  booth_number: string
+  size: string | null
+  dimensions: string | null
+  location_zone: string | null
+  price: number | null
+  amenities: string | null
+  status: string | null
+}
+
+const BOOTH_STATUS_COLORS: Record<string, string> = {
+  available: 'bg-green-100 text-green-700',
+  reserved: 'bg-amber-100 text-amber-700',
+  assigned: 'bg-blue-100 text-blue-700',
+  occupied: 'bg-purple-100 text-purple-700',
+}
+
+function BoothsTab({ eventId }: { eventId: number }) {
+  const { toast } = useToast()
+  const [boothsList, setBoothsList] = useState<BoothData[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [bNum, setBNum] = useState('')
+  const [bSize, setBSize] = useState('')
+  const [bDim, setBDim] = useState('')
+  const [bZone, setBZone] = useState('')
+  const [bPrice, setBPrice] = useState('')
+
+  useState(() => {
+    fetch(`/api/events/${eventId}/booths`)
+      .then(r => r.json())
+      .then(data => { setBoothsList(Array.isArray(data) ? data : data.data || []); setLoaded(true) })
+  })
+
+  async function addBooth(e: React.FormEvent) {
+    e.preventDefault()
+    if (!bNum.trim()) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/events/${eventId}/booths`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          booth_number: bNum.trim(),
+          size: bSize || null,
+          dimensions: bDim || null,
+          location_zone: bZone || null,
+          price: bPrice ? Number(bPrice) : null,
+        }),
+      })
+      if (!res.ok) throw new Error('Failed')
+      const newBooth = await res.json()
+      setBoothsList(prev => [...prev, newBooth])
+      setBNum(''); setBSize(''); setBDim(''); setBZone(''); setBPrice('')
+      setShowAdd(false)
+      toast({ type: 'success', message: 'Booth added' })
+    } catch {
+      toast({ type: 'error', message: 'Failed to add booth' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!loaded) return <div className="text-center py-12"><p className="text-sm text-text-tertiary">Loading...</p></div>
+
+  const statusCounts = boothsList.reduce<Record<string, number>>((acc, b) => {
+    const s = b.status || 'available'
+    acc[s] = (acc[s] || 0) + 1
+    return acc
+  }, {})
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-text-secondary">{boothsList.length} booth{boothsList.length !== 1 ? 's' : ''}</p>
+          {Object.entries(statusCounts).map(([status, count]) => (
+            <span key={status} className={`text-xs font-medium px-2 py-0.5 rounded-full ${BOOTH_STATUS_COLORS[status] || 'bg-gray-100 text-gray-700'}`}>
+              {count} {status}
+            </span>
+          ))}
+        </div>
+        <Button size="sm" onClick={() => setShowAdd(true)}><Plus className="h-3.5 w-3.5" /> Add Booth</Button>
+      </div>
+
+      {showAdd && (
+        <form onSubmit={addBooth} className="bg-surface rounded-xl border border-border p-4 space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <input type="text" value={bNum} onChange={e => setBNum(e.target.value)} placeholder="Booth # (e.g., A1)"
+              autoFocus className="h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+            <input type="text" value={bSize} onChange={e => setBSize(e.target.value)} placeholder="Size (e.g., small, large)"
+              className="h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+            <input type="text" value={bDim} onChange={e => setBDim(e.target.value)} placeholder="Dimensions (e.g., 3x3m)"
+              className="h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input type="text" value={bZone} onChange={e => setBZone(e.target.value)} placeholder="Zone / Hall"
+              className="h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+            <input type="number" value={bPrice} onChange={e => setBPrice(e.target.value)} placeholder="Price (halalas)"
+              className="h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" size="sm" type="button" onClick={() => setShowAdd(false)}>Cancel</Button>
+            <Button size="sm" type="submit" loading={saving}>Add</Button>
+          </div>
+        </form>
+      )}
+
+      {boothsList.length === 0 && !showAdd ? (
+        <div className="text-center py-12">
+          <MapPin className="h-8 w-8 text-text-tertiary mx-auto mb-2" />
+          <p className="text-sm text-text-secondary">No booths yet. Add booths to manage the exhibition layout.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {boothsList.map(booth => (
+            <div key={booth.id} className="bg-surface rounded-lg border border-border p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold text-text-primary">Booth {booth.booth_number}</h4>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${BOOTH_STATUS_COLORS[booth.status || 'available']}`}>
+                  {booth.status || 'available'}
+                </span>
+              </div>
+              <div className="space-y-1 text-xs text-text-secondary">
+                {booth.size && <p>Size: {booth.size}</p>}
+                {booth.dimensions && <p>Dimensions: {booth.dimensions}</p>}
+                {booth.location_zone && <p className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {booth.location_zone}</p>}
+                {booth.price && <p className="text-primary-600 font-medium">SAR {(booth.price / 100).toLocaleString()}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

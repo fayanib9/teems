@@ -179,14 +179,14 @@ export function DirectoryPage({ title, iconName, items, apiPath, fields, cardFie
                 </div>
               </div>
               <div className="space-y-1.5 text-sm text-text-secondary">
-                {item.email && (
-                  <p className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 text-text-tertiary" /> {String(item.email)}</p>
+                {typeof item.email === 'string' && item.email && (
+                  <p className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 text-text-tertiary" /> {item.email}</p>
                 )}
-                {item.phone && (
-                  <p className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5 text-text-tertiary" /> {String(item.phone)}</p>
+                {typeof item.phone === 'string' && item.phone && (
+                  <p className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5 text-text-tertiary" /> {item.phone}</p>
                 )}
-                {item.website && (
-                  <p className="flex items-center gap-1.5"><Globe className="h-3.5 w-3.5 text-text-tertiary" /> {String(item.website)}</p>
+                {typeof item.website === 'string' && item.website && (
+                  <p className="flex items-center gap-1.5"><Globe className="h-3.5 w-3.5 text-text-tertiary" /> {item.website}</p>
                 )}
               </div>
               {typeof item.event_count === 'number' && (

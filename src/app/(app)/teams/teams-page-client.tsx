@@ -31,13 +31,13 @@ type Props = {
   canEdit: boolean
 }
 
-const COLORS = ['#7C3AED', '#2563EB', '#059669', '#D97706', '#DC2626', '#6B7280', '#EC4899']
+const COLORS = ['#312C6A', '#2563EB', '#059669', '#D97706', '#DC2626', '#6B7280', '#EC4899']
 
 export function TeamsPageClient({ teams, users, canCreate, canEdit }: Props) {
   const router = useRouter()
   const { toast } = useToast()
   const [showModal, setShowModal] = useState(false)
-  const [form, setForm] = useState({ name: '', description: '', lead_id: '', color: '#7C3AED' })
+  const [form, setForm] = useState({ name: '', description: '', lead_id: '', color: '#312C6A' })
   const [loading, setLoading] = useState(false)
 
   async function handleCreate(e: React.FormEvent) {
@@ -61,7 +61,7 @@ export function TeamsPageClient({ teams, users, canCreate, canEdit }: Props) {
       if (!res.ok) throw new Error('Failed')
       toast({ type: 'success', message: 'Team created' })
       setShowModal(false)
-      setForm({ name: '', description: '', lead_id: '', color: '#7C3AED' })
+      setForm({ name: '', description: '', lead_id: '', color: '#312C6A' })
       router.refresh()
     } catch {
       toast({ type: 'error', message: 'Failed to create team' })
@@ -92,7 +92,7 @@ export function TeamsPageClient({ teams, users, canCreate, canEdit }: Props) {
               <div className="flex items-start gap-3 mb-3">
                 <div
                   className="h-10 w-10 rounded-lg flex items-center justify-center text-white font-bold text-sm"
-                  style={{ backgroundColor: team.color || '#7C3AED' }}
+                  style={{ backgroundColor: team.color || '#312C6A' }}
                 >
                   {team.name.charAt(0).toUpperCase()}
                 </div>

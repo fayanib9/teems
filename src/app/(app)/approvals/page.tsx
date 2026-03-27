@@ -54,7 +54,12 @@ export default async function ApprovalsPage() {
 
   const data = rows.map(r => ({
     ...r,
-    steps: stepsByApproval[r.id] || [],
+    resolved_at: r.resolved_at?.toISOString() ?? null,
+    created_at: r.created_at?.toISOString() ?? null,
+    steps: (stepsByApproval[r.id] || []).map(s => ({
+      ...s,
+      decided_at: s.decided_at?.toISOString() ?? null,
+    })),
   }))
 
   // Get events and users for the create form

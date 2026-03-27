@@ -31,7 +31,12 @@ export default function LoginPage() {
         return
       }
 
-      router.push('/dashboard')
+      const externalRoles = ['client', 'vendor', 'speaker', 'exhibitor']
+      if (data.user?.role && externalRoles.includes(data.user.role)) {
+        router.push('/portal')
+      } else {
+        router.push('/dashboard')
+      }
     } catch {
       setError('Something went wrong')
     } finally {
@@ -41,8 +46,11 @@ export default function LoginPage() {
 
   return (
     <div className="bg-surface rounded-xl border border-border p-6 shadow-sm">
-      <h2 className="text-lg font-semibold text-text-primary mb-1">Sign in</h2>
-      <p className="text-sm text-text-secondary mb-6">Enter your credentials to continue</p>
+      <div className="flex flex-col items-center mb-6">
+        <img src="/logo.svg" alt="TEEMS" width={48} height={48} className="rounded-xl mb-3" />
+        <h2 className="text-lg font-semibold text-text-primary">Welcome to TEEMS</h2>
+        <p className="text-sm text-text-secondary">Sign in to continue</p>
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input

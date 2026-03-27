@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
+import jwt from 'jsonwebtoken'
 
+const JWT_SECRET = process.env.JWT_SECRET || 'teems-dev-secret'
 const PUBLIC_PATHS = ['/login', '/forgot-password', '/api/auth/login', '/api/health']
+const EXTERNAL_ROLES = ['client', 'vendor', 'speaker', 'exhibitor']
+
+function decodeToken(token: string): { userId: number; email: string; role_name?: string } | null {
+  try {
+    return jwt.verify(token, JWT_SECRET) as { userId: number; email: string; role_name?: string }
+  } catch {
+    return null
+  }
+}
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -8,8 +19,11 @@ export function middleware(request: NextRequest) {
 
   // Allow public paths
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-    // Redirect logged-in users away from login
     if (pathname === '/login' && token) {
+      const decoded = decodeToken(token)
+      if (decoded?.role_name && EXTERNAL_ROLES.includes(decoded.role_name)) {
+        return NextResponse.redirect(new URL('/portal', request.url))
+      }
       return NextResponse.redirect(new URL('/dashboard', request.url))
     }
     return NextResponse.next()
@@ -20,9 +34,13 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Redirect root to dashboard
+  // Redirect root
   if (pathname === '/') {
     if (token) {
+      const decoded = decodeToken(token)
+      if (decoded?.role_name && EXTERNAL_ROLES.includes(decoded.role_name)) {
+        return NextResponse.redirect(new URL('/portal', request.url))
+      }
       return NextResponse.redirect(new URL('/dashboard', request.url))
     }
     return NextResponse.redirect(new URL('/login', request.url))
@@ -34,6 +52,25 @@ export function middleware(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     return NextResponse.redirect(new URL('/login', request.url))
+  }
+
+  // External user isolation: restrict to /portal/* and /api/portal/*
+  const decoded = decodeToken(token)
+  if (decoded?.role_name && EXTERNAL_ROLES.includes(decoded.role_name)) {
+    const allowed = pathname.startsWith('/portal') || pathname.startsWith('/api/portal') || pathname.startsWith('/api/auth')
+    if (!allowed) {
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
+      return NextResponse.redirect(new URL('/portal', request.url))
+    }
+  }
+
+  // Internal user: block /portal/* routes
+  if (decoded && (!decoded.role_name || !EXTERNAL_ROLES.includes(decoded.role_name))) {
+    if (pathname.startsWith('/portal')) {
+      return NextResponse.redirect(new URL('/dashboard', request.url))
+    }
   }
 
   return NextResponse.next()

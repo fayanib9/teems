@@ -46,12 +46,12 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
 }
 
 const EVENT_TYPES = [
-  { name: 'Conference', color: '#7C3AED', icon: 'Mic' },
+  { name: 'Conference', color: '#312C6A', icon: 'Mic' },
   { name: 'Exhibition', color: '#2563EB', icon: 'Presentation' },
   { name: 'Workshop', color: '#059669', icon: 'BookOpen' },
   { name: 'Gala Dinner', color: '#D97706', icon: 'UtensilsCrossed' },
   { name: 'Forum', color: '#DC2626', icon: 'Users' },
-  { name: 'Ceremony', color: '#7C3AED', icon: 'Award' },
+  { name: 'Ceremony', color: '#312C6A', icon: 'Award' },
   { name: 'Corporate Meeting', color: '#6B7280', icon: 'Briefcase' },
 ]
 

@@ -4,8 +4,31 @@ import { users, roles } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { verifyPassword, createToken, setAuthCookie } from '@/lib/auth'
 
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000 // 15 minutes
+const MAX_ATTEMPTS = 5
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
+
+function getRateLimitKey(request: NextRequest): string {
+  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+}
+
 export async function POST(request: NextRequest) {
   try {
+    const ip = getRateLimitKey(request)
+    const now = Date.now()
+    const entry = rateLimitMap.get(ip)
+
+    if (entry) {
+      if (now > entry.resetAt) {
+        rateLimitMap.delete(ip)
+      } else if (entry.count >= MAX_ATTEMPTS) {
+        return NextResponse.json(
+          { error: 'Too many login attempts. Try again later.' },
+          { status: 429 }
+        )
+      }
+    }
+
     const { email, password } = await request.json()
 
     if (!email || !password) {
@@ -28,6 +51,11 @@ export async function POST(request: NextRequest) {
       .limit(1)
 
     if (!user[0]) {
+      const current = rateLimitMap.get(ip)
+      rateLimitMap.set(ip, {
+        count: (current ? current.count : 0) + 1,
+        resetAt: current ? current.resetAt : now + RATE_LIMIT_WINDOW,
+      })
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
 
@@ -37,8 +65,16 @@ export async function POST(request: NextRequest) {
 
     const valid = await verifyPassword(password, user[0].password_hash)
     if (!valid) {
+      const current = rateLimitMap.get(ip)
+      rateLimitMap.set(ip, {
+        count: (current ? current.count : 0) + 1,
+        resetAt: current ? current.resetAt : now + RATE_LIMIT_WINDOW,
+      })
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
+
+    // Successful login — clear rate limit
+    rateLimitMap.delete(ip)
 
     // Update last login
     await db
@@ -46,7 +82,7 @@ export async function POST(request: NextRequest) {
       .set({ last_login_at: new Date() })
       .where(eq(users.id, user[0].id))
 
-    const token = createToken({ userId: user[0].id, email: user[0].email })
+    const token = createToken({ userId: user[0].id, email: user[0].email, role_name: user[0].role_name || undefined })
     await setAuthCookie(token)
 
     return NextResponse.json({

@@ -34,9 +34,14 @@ export default async function DocumentsPage() {
   // Get events for the upload form dropdown
   const eventList = await db.select({ id: events.id, title: events.title }).from(events).orderBy(desc(events.created_at))
 
+  const serializedRows = rows.map(r => ({
+    ...r,
+    created_at: r.created_at?.toISOString() ?? null,
+  }))
+
   return (
     <DocumentsClient
-      documents={rows}
+      documents={serializedRows}
       events={eventList}
       canCreate={hasPermission(session, 'documents', 'create')}
       canEdit={hasPermission(session, 'documents', 'edit')}

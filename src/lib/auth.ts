@@ -28,13 +28,13 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   return bcrypt.compare(password, hash)
 }
 
-export function createToken(payload: { userId: number; email: string }): string {
+export function createToken(payload: { userId: number; email: string; role_name?: string }): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: TOKEN_EXPIRY })
 }
 
-export function verifyToken(token: string): { userId: number; email: string } | null {
+export function verifyToken(token: string): { userId: number; email: string; role_name?: string } | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as { userId: number; email: string }
+    return jwt.verify(token, JWT_SECRET) as { userId: number; email: string; role_name?: string }
   } catch {
     return null
   }

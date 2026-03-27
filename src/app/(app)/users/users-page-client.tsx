@@ -65,6 +65,7 @@ export function UsersPageClient({ users, roles }: Props) {
       </div>
 
       <div className="bg-surface rounded-xl border border-border overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-gray-50">
@@ -109,6 +110,7 @@ export function UsersPageClient({ users, roles }: Props) {
             ))}
           </tbody>
         </table>
+        </div>
         {filtered.length === 0 && (
           <div className="text-center py-8 text-sm text-text-tertiary">No users match your filters</div>
         )}

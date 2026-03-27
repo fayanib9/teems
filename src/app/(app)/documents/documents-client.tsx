@@ -272,6 +272,7 @@ export function DocumentsClient({ documents: docs, events, canCreate, canEdit, c
         />
       ) : (
         <div className="bg-surface rounded-xl border border-border overflow-hidden">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-gray-50">
@@ -346,6 +347,7 @@ export function DocumentsClient({ documents: docs, events, canCreate, canEdit, c
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

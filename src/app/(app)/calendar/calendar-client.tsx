@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/layout/page-header'
 import { Button } from '@/components/ui/button'
-import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CalendarDays, Download } from 'lucide-react'
 import Link from 'next/link'
 
 type CalEvent = {
@@ -91,6 +91,11 @@ export function CalendarClient({ events, year, month }: Props) {
       <PageHeader
         title="Calendar"
         description="Event schedule overview"
+        actions={
+          <a href="/api/calendar/export" download>
+            <Button variant="outline"><Download className="h-4 w-4" /> Export iCal</Button>
+          </a>
+        }
       />
 
       <div className="bg-surface rounded-xl border border-border overflow-hidden">
@@ -146,8 +151,8 @@ export function CalendarClient({ events, year, month }: Props) {
                       href={`/events/${e.id}`}
                       className="block text-xs px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity"
                       style={{
-                        backgroundColor: `${e.event_type_color || '#7C3AED'}20`,
-                        color: e.event_type_color || '#7C3AED',
+                        backgroundColor: `${e.event_type_color || '#312C6A'}20`,
+                        color: e.event_type_color || '#312C6A',
                       }}
                     >
                       {e.title}

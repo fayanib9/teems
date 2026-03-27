@@ -210,7 +210,9 @@ export const task_comments = pgTable('task_comments', {
   attachment_path: text('attachment_path'),
   created_at: timestamp('created_at').defaultNow(),
   updated_at: timestamp('updated_at').defaultNow(),
-})
+}, (table) => [
+  index('task_comments_task_idx').on(table.task_id),
+])
 
 export const task_dependencies = pgTable('task_dependencies', {
   id: serial('id').primaryKey(),
@@ -253,6 +255,7 @@ export const event_vendors = pgTable('event_vendors', {
   created_at: timestamp('created_at').defaultNow(),
 }, (table) => [
   index('event_vendors_event_idx').on(table.event_id),
+  index('event_vendors_vendor_idx').on(table.vendor_id),
 ])
 
 // ─── Speakers ───────────────────────────────────────────────────
@@ -307,6 +310,7 @@ export const event_speakers = pgTable('event_speakers', {
   created_at: timestamp('created_at').defaultNow(),
 }, (table) => [
   index('event_speakers_event_idx').on(table.event_id),
+  index('event_speakers_speaker_idx').on(table.speaker_id),
 ])
 
 // ─── Exhibitors & Booths ───────────────────────────────────────
@@ -355,6 +359,7 @@ export const event_exhibitors = pgTable('event_exhibitors', {
   created_at: timestamp('created_at').defaultNow(),
 }, (table) => [
   index('event_exhibitors_event_idx').on(table.event_id),
+  index('event_exhibitors_exhibitor_idx').on(table.exhibitor_id),
 ])
 
 // ─── Documents ──────────────────────────────────────────────────
@@ -408,7 +413,9 @@ export const approval_steps = pgTable('approval_steps', {
   comment: text('comment'),
   decided_at: timestamp('decided_at'),
   created_at: timestamp('created_at').defaultNow(),
-})
+}, (table) => [
+  index('approval_steps_approval_idx').on(table.approval_id),
+])
 
 // ─── Tags & Categories ──────────────────────────────────────────
 

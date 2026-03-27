@@ -133,7 +133,7 @@ export function EventsListClient({ events, eventTypes, pagination, filters, canC
                         className="text-xs font-medium px-2 py-0.5 rounded-full"
                         style={{
                           backgroundColor: `${event.event_type_color}15`,
-                          color: event.event_type_color || '#7C3AED',
+                          color: event.event_type_color || '#312C6A',
                         }}
                       >
                         {event.event_type_name}

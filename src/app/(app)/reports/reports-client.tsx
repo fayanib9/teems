@@ -30,7 +30,7 @@ type Props = {
 const EVENT_STATUS_COLORS: Record<string, string> = {
   draft: '#9CA3AF',
   planning: '#3B82F6',
-  confirmed: '#7C3AED',
+  confirmed: '#312C6A',
   in_progress: '#F59E0B',
   completed: '#10B981',
   cancelled: '#EF4444',
@@ -40,7 +40,7 @@ const EVENT_STATUS_COLORS: Record<string, string> = {
 const TASK_STATUS_COLORS: Record<string, string> = {
   todo: '#9CA3AF',
   in_progress: '#3B82F6',
-  in_review: '#7C3AED',
+  in_review: '#312C6A',
   blocked: '#EF4444',
   done: '#10B981',
   cancelled: '#6B7280',

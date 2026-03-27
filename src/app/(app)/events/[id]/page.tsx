@@ -1,7 +1,7 @@
 import { getSession, hasPermission } from '@/lib/auth'
 import { db } from '@/db'
-import { events, event_types, clients, tasks, event_vendors, event_speakers, event_exhibitors, documents, milestones, users, event_assignments } from '@/db/schema'
-import { eq, and, count, desc } from 'drizzle-orm'
+import { events, event_types, clients, tasks, users, event_assignments } from '@/db/schema'
+import { eq, desc, sql } from 'drizzle-orm'
 import { notFound } from 'next/navigation'
 import { EventCommandCenter } from './command-center'
 
@@ -53,14 +53,18 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
 
   if (!event) notFound()
 
-  // Get counts
-  const [taskCount] = await db.select({ count: count() }).from(tasks).where(eq(tasks.event_id, eventId))
-  const [taskDoneCount] = await db.select({ count: count() }).from(tasks).where(and(eq(tasks.event_id, eventId), eq(tasks.status, 'done')))
-  const [vendorCount] = await db.select({ count: count() }).from(event_vendors).where(eq(event_vendors.event_id, eventId))
-  const [speakerCount] = await db.select({ count: count() }).from(event_speakers).where(eq(event_speakers.event_id, eventId))
-  const [exhibitorCount] = await db.select({ count: count() }).from(event_exhibitors).where(eq(event_exhibitors.event_id, eventId))
-  const [documentCount] = await db.select({ count: count() }).from(documents).where(eq(documents.event_id, eventId))
-  const [milestoneCount] = await db.select({ count: count() }).from(milestones).where(eq(milestones.event_id, eventId))
+  // Get all counts in a single query
+  const countsResult = await db.execute(sql`
+    SELECT
+      (SELECT COUNT(*) FROM tasks WHERE event_id = ${eventId}) as task_count,
+      (SELECT COUNT(*) FROM tasks WHERE event_id = ${eventId} AND status = 'done') as task_done_count,
+      (SELECT COUNT(*) FROM event_vendors WHERE event_id = ${eventId}) as vendor_count,
+      (SELECT COUNT(*) FROM event_speakers WHERE event_id = ${eventId}) as speaker_count,
+      (SELECT COUNT(*) FROM event_exhibitors WHERE event_id = ${eventId}) as exhibitor_count,
+      (SELECT COUNT(*) FROM documents WHERE event_id = ${eventId}) as document_count,
+      (SELECT COUNT(*) FROM milestones WHERE event_id = ${eventId}) as milestone_count
+  `)
+  const counts = countsResult.rows[0] as Record<string, string>
 
   // Recent tasks
   const recentTasks = await db
@@ -100,13 +104,13 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
     <EventCommandCenter
       event={event}
       counts={{
-        tasks: taskCount.count,
-        tasksDone: taskDoneCount.count,
-        vendors: vendorCount.count,
-        speakers: speakerCount.count,
-        exhibitors: exhibitorCount.count,
-        documents: documentCount.count,
-        milestones: milestoneCount.count,
+        tasks: Number(counts.task_count),
+        tasksDone: Number(counts.task_done_count),
+        vendors: Number(counts.vendor_count),
+        speakers: Number(counts.speaker_count),
+        exhibitors: Number(counts.exhibitor_count),
+        documents: Number(counts.document_count),
+        milestones: Number(counts.milestone_count),
       }}
       recentTasks={recentTasks}
       teamMembers={teamMembers}

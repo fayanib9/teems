@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
@@ -56,6 +57,7 @@ const navSections = [
     title: 'Admin',
     items: [
       { label: 'Users', href: '/users', icon: 'UserCog', permission: 'users:view' },
+      { label: 'Activity Log', href: '/activity', icon: 'History', permission: 'settings:view' },
       { label: 'Settings', href: '/settings', icon: 'Settings', permission: 'settings:view' },
     ],
   },
@@ -86,9 +88,7 @@ export function Sidebar({ user, open, onClose }: SidebarProps) {
         {/* Logo */}
         <div className="flex items-center justify-between h-14 px-4 border-b border-border-light">
           <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-primary-500 flex items-center justify-center">
-              <span className="text-white font-bold text-sm">T</span>
-            </div>
+            <Image src="/logo.svg" alt="TEEMS" width={32} height={32} className="rounded-lg" />
             <span className="text-lg font-bold text-text-primary">TEEMS</span>
           </Link>
           <button onClick={onClose} className="lg:hidden text-text-tertiary hover:text-text-primary">

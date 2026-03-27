@@ -1,54 +1,33 @@
 import { getSession, hasPermission } from '@/lib/auth'
 import { redirect } from 'next/navigation'
-import { PageHeader } from '@/components/layout/page-header'
-import { Settings } from 'lucide-react'
+import { db } from '@/db'
+import { settings } from '@/db/schema'
+import { SettingsClient } from './settings-client'
 
 export default async function SettingsPage() {
   const session = await getSession()
   if (!session) return null
   if (!hasPermission(session, 'settings', 'view')) redirect('/dashboard')
 
+  const rows = await db.select().from(settings)
+  const data = Object.fromEntries(rows.map(r => [r.key, r.value]))
+
+  // Ensure default values
+  const config = {
+    organization_name: data.organization_name || 'Toada Consulting',
+    timezone: data.timezone || 'Asia/Riyadh',
+    currency: data.currency || 'SAR',
+    language: data.language || 'en',
+    date_format: data.date_format || 'MMM dd, yyyy',
+    smtp_host: data.smtp_host || '',
+    smtp_port: data.smtp_port || '587',
+    smtp_from: data.smtp_from || '',
+  }
+
   return (
-    <>
-      <PageHeader title="Settings" description="System configuration" />
-
-      <div className="space-y-6 max-w-2xl">
-        <div className="bg-surface rounded-xl border border-border p-5">
-          <h2 className="text-sm font-semibold text-text-primary uppercase tracking-wider mb-3">General</h2>
-          <div className="space-y-3 text-sm">
-            <div className="flex items-center justify-between py-2 border-b border-border">
-              <span className="text-text-secondary">Organization</span>
-              <span className="text-text-primary font-medium">Toada Consulting</span>
-            </div>
-            <div className="flex items-center justify-between py-2 border-b border-border">
-              <span className="text-text-secondary">Timezone</span>
-              <span className="text-text-primary">Asia/Riyadh (GMT+3)</span>
-            </div>
-            <div className="flex items-center justify-between py-2 border-b border-border">
-              <span className="text-text-secondary">Currency</span>
-              <span className="text-text-primary">SAR</span>
-            </div>
-            <div className="flex items-center justify-between py-2">
-              <span className="text-text-secondary">Language</span>
-              <span className="text-text-primary">English</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-surface rounded-xl border border-border p-5">
-          <h2 className="text-sm font-semibold text-text-primary uppercase tracking-wider mb-3">System Info</h2>
-          <div className="space-y-3 text-sm">
-            <div className="flex items-center justify-between py-2 border-b border-border">
-              <span className="text-text-secondary">Version</span>
-              <span className="text-text-primary">1.0.0</span>
-            </div>
-            <div className="flex items-center justify-between py-2">
-              <span className="text-text-secondary">Database</span>
-              <span className="text-text-primary">PostgreSQL</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
+    <SettingsClient
+      settings={config}
+      canEdit={hasPermission(session, 'settings', 'edit')}
+    />
   )
 }
