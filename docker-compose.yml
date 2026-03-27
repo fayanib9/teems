@@ -1,0 +1,42 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        DATABASE_URL: postgresql://teems:teems@db:5432/teems
+        JWT_SECRET: ${JWT_SECRET:-teems-production-secret-change-me}
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://teems:teems@db:5432/teems
+      JWT_SECRET: ${JWT_SECRET:-teems-production-secret-change-me}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@teems.momentumworld.me}
+    volumes:
+      - uploads:/app/data/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: teems
+      POSTGRES_USER: teems
+      POSTGRES_PASSWORD: teems
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U teems"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  uploads:
