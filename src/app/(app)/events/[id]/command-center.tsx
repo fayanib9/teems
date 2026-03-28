@@ -1,18 +1,22 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Badge } from '@/components/ui/badge'
 import { StatCard } from '@/components/ui/stat-card'
 import { Modal } from '@/components/ui/modal'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useToast } from '@/components/ui/toast'
 import { formatDate, formatDateTime, formatCurrency, getInitials } from '@/lib/utils'
 import {
-  ArrowLeft, Edit, Trash2, CalendarDays, MapPin, Users, DollarSign,
+  ArrowLeft, ArrowRight, Edit, Trash2, CalendarDays, MapPin, Users, DollarSign,
   CheckSquare, Truck, Mic, Presentation, FileText, Milestone, Clock,
   MoreHorizontal, ExternalLink, Plus, AlertTriangle, PlayCircle,
+  Wand2, Calculator, GitCompare, ShieldAlert, Copy, ChevronDown,
+  CheckCircle, Circle, ClipboardList, Target, Rocket, ShoppingCart,
+  BookOpen, Grid3X3, UserPlus, Award, Receipt, Handshake, GanttChart,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -58,6 +62,12 @@ type Props = {
     exhibitors: number
     documents: number
     milestones: number
+    assignments: number
+    budgetCalcs: number
+    plans: number
+    risks: number
+    changes: number
+    lessons: number
   }
   recentTasks: {
     id: number
@@ -80,7 +90,7 @@ type Props = {
   canDelete: boolean
 }
 
-type Tab = 'overview' | 'tasks' | 'timeline' | 'team' | 'vendors' | 'speakers' | 'exhibitors' | 'documents' | 'sessions' | 'booths' | 'budget' | 'event_day'
+type Tab = 'overview' | 'tasks' | 'timeline' | 'team' | 'vendors' | 'speakers' | 'exhibitors' | 'documents' | 'sessions' | 'booths' | 'budget' | 'changes' | 'lessons' | 'raci' | 'event_day' | 'attendees' | 'sponsors' | 'expenses' | 'stakeholders' | 'governance'
 
 const TABS: { key: Tab; label: string; icon: typeof CalendarDays }[] = [
   { key: 'overview', label: 'Overview', icon: CalendarDays },
@@ -94,7 +104,15 @@ const TABS: { key: Tab; label: string; icon: typeof CalendarDays }[] = [
   { key: 'booths', label: 'Booths', icon: MapPin },
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'budget', label: 'Budget', icon: DollarSign },
+  { key: 'changes', label: 'Changes', icon: GitCompare },
+  { key: 'lessons', label: 'Lessons', icon: BookOpen },
+  { key: 'raci', label: 'RACI', icon: Grid3X3 },
   { key: 'event_day', label: 'Event Day', icon: PlayCircle },
+  { key: 'attendees', label: 'Attendees', icon: UserPlus },
+  { key: 'sponsors', label: 'Sponsors', icon: Award },
+  { key: 'expenses', label: 'Expenses', icon: Receipt },
+  { key: 'stakeholders', label: 'Stakeholders', icon: Handshake },
+  { key: 'governance', label: 'Governance', icon: GanttChart },
 ]
 
 export function EventCommandCenter({ event, counts, recentTasks, teamMembers, canEdit, canDelete }: Props) {
@@ -103,6 +121,10 @@ export function EventCommandCenter({ event, counts, recentTasks, teamMembers, ca
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [deleteModal, setDeleteModal] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [showQuickActions, setShowQuickActions] = useState(false)
+  const [duplicateModal, setDuplicateModal] = useState(false)
+  const [duplicating, setDuplicating] = useState(false)
+  const [newEventDate, setNewEventDate] = useState('')
 
   const daysUntil = event.start_date
     ? Math.ceil((new Date(event.start_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
@@ -124,7 +146,36 @@ export function EventCommandCenter({ event, counts, recentTasks, teamMembers, ca
     }
   }
 
+  // Stage governance gate checks
+  function getGateRequirements(targetStatus: string): { label: string; met: boolean }[] {
+    switch (targetStatus) {
+      case 'planning':
+        return [
+          { label: 'Description set', met: !!event.description },
+          { label: 'Dates set', met: !!event.start_date && !!event.end_date },
+        ]
+      case 'confirmed':
+        return [
+          { label: 'Budget estimated', met: counts.budgetCalcs > 0 || !!event.budget_estimated },
+          { label: 'Team assigned', met: counts.assignments > 0 },
+        ]
+      case 'in_progress':
+        return [
+          { label: 'Tasks created', met: counts.tasks > 0 },
+          { label: 'Vendors assigned', met: counts.vendors > 0 },
+        ]
+      default:
+        return []
+    }
+  }
+
   async function handleStatusChange(status: string) {
+    const reqs = getGateRequirements(status)
+    const unmet = reqs.filter(r => !r.met)
+    if (unmet.length > 0) {
+      toast({ type: 'error', message: `Cannot move to ${status.replace(/_/g, ' ')}: ${unmet.map(r => r.label).join(', ')} not met` })
+      return
+    }
     try {
       const res = await fetch(`/api/events/${event.id}`, {
         method: 'PATCH',
@@ -136,6 +187,30 @@ export function EventCommandCenter({ event, counts, recentTasks, teamMembers, ca
       router.refresh()
     } catch {
       toast({ type: 'error', message: 'Failed to update status' })
+    }
+  }
+
+  async function handleDuplicate() {
+    if (!newEventDate) {
+      toast({ type: 'error', message: 'Please select a new event date' })
+      return
+    }
+    setDuplicating(true)
+    try {
+      const res = await fetch(`/api/events/${event.id}/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_start_date: newEventDate }),
+      })
+      if (!res.ok) throw new Error('Failed to duplicate')
+      const { data } = await res.json()
+      toast({ type: 'success', message: 'Event duplicated' })
+      router.push(`/events/${data.id}`)
+    } catch {
+      toast({ type: 'error', message: 'Failed to duplicate event' })
+    } finally {
+      setDuplicating(false)
+      setDuplicateModal(false)
     }
   }
 
@@ -174,10 +249,40 @@ export function EventCommandCenter({ event, counts, recentTasks, teamMembers, ca
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Quick Actions Dropdown */}
+          <div className="relative">
+            <Button variant="primary" size="sm" onClick={() => setShowQuickActions(!showQuickActions)}>
+              <Wand2 className="h-3.5 w-3.5" /> Tools <ChevronDown className="h-3 w-3" />
+            </Button>
+            {showQuickActions && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowQuickActions(false)} />
+                <div className="absolute right-0 mt-1 w-52 bg-surface rounded-lg border border-border shadow-lg z-20 py-1">
+                  <Link href={`/tools/planner/new?event_id=${event.id}`} className="flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-surface-secondary" onClick={() => setShowQuickActions(false)}>
+                    <ClipboardList className="h-4 w-4 text-blue-500" /> Generate Plan
+                  </Link>
+                  <Link href={`/tools/budget/new?event_id=${event.id}`} className="flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-surface-secondary" onClick={() => setShowQuickActions(false)}>
+                    <Calculator className="h-4 w-4 text-green-500" /> Calculate Budget
+                  </Link>
+                  <Link href={`/tools/vendors/new?event_id=${event.id}`} className="flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-surface-secondary" onClick={() => setShowQuickActions(false)}>
+                    <GitCompare className="h-4 w-4 text-purple-500" /> Match Vendors
+                  </Link>
+                  <Link href={`/tools/risks/new?event_id=${event.id}`} className="flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-surface-secondary" onClick={() => setShowQuickActions(false)}>
+                    <ShieldAlert className="h-4 w-4 text-red-500" /> Assess Risks
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
           {canEdit && (
-            <Link href={`/events/${event.id}/edit`}>
-              <Button variant="outline" size="sm"><Edit className="h-3.5 w-3.5" /> Edit</Button>
-            </Link>
+            <>
+              <Button variant="outline" size="sm" onClick={() => setDuplicateModal(true)}>
+                <Copy className="h-3.5 w-3.5" /> Duplicate
+              </Button>
+              <Link href={`/events/${event.id}/edit`}>
+                <Button variant="outline" size="sm"><Edit className="h-3.5 w-3.5" /> Edit</Button>
+              </Link>
+            </>
           )}
           {canDelete && (
             <Button variant="ghost" size="icon" onClick={() => setDeleteModal(true)}>
@@ -239,6 +344,12 @@ export function EventCommandCenter({ event, counts, recentTasks, teamMembers, ca
               {key === 'documents' && counts.documents > 0 && (
                 <span className="text-xs bg-surface-tertiary rounded-full px-1.5 py-0.5">{counts.documents}</span>
               )}
+              {key === 'changes' && counts.changes > 0 && (
+                <span className="text-xs bg-surface-tertiary rounded-full px-1.5 py-0.5">{counts.changes}</span>
+              )}
+              {key === 'lessons' && counts.lessons > 0 && (
+                <span className="text-xs bg-surface-tertiary rounded-full px-1.5 py-0.5">{counts.lessons}</span>
+              )}
             </button>
           ))}
         </nav>
@@ -254,6 +365,7 @@ export function EventCommandCenter({ event, counts, recentTasks, teamMembers, ca
           teamMembers={teamMembers}
           canEdit={canEdit}
           onStatusChange={handleStatusChange}
+          getGateRequirements={getGateRequirements}
         />
       )}
       {activeTab === 'tasks' && (
@@ -273,23 +385,96 @@ export function EventCommandCenter({ event, counts, recentTasks, teamMembers, ca
       {activeTab === 'documents' && <EventDocumentsTab eventId={event.id} />}
       {activeTab === 'budget' && <BudgetTab event={event} />}
       {activeTab === 'event_day' && <EventDayTab eventId={event.id} />}
+      {activeTab === 'changes' && <LinkOutTab eventId={event.id} path="changes" label="Change Requests" description="Track scope, budget, and schedule changes for this event." icon="ClipboardList" />}
+      {activeTab === 'lessons' && <LinkOutTab eventId={event.id} path="lessons" label="Lessons Learned" description="Capture and review lessons from this event." icon="BookOpen" />}
+      {activeTab === 'raci' && <LinkOutTab eventId={event.id} path="raci" label="RACI Matrix" description="Define Responsible, Accountable, Consulted, and Informed roles." icon="Grid3X3" />}
+      {activeTab === 'attendees' && <DataTab eventId={event.id} endpoint="attendees" title="Attendees" description="Manage event registrations, check-ins, and attendee information." columns={['Name', 'Email', 'Type', 'Status']} fieldMap={{ Name: ['first_name', 'last_name'], Email: 'email', Type: 'registration_type', Status: 'status' }} />}
+      {activeTab === 'sponsors' && <DataTab eventId={event.id} endpoint="sponsors" title="Sponsors" description="Manage event sponsors, tiers, and deliverables." columns={['Sponsor', 'Tier', 'Amount', 'Status']} fieldMap={{ Sponsor: 'sponsor_name', Tier: 'tier', Amount: 'commitment_amount', Status: 'status' }} isCurrency="Amount" />}
+      {activeTab === 'expenses' && <DataTab eventId={event.id} endpoint="expenses" title="Expenses" description="Track actual expenses, invoices, and payments against your budget." columns={['Description', 'Category', 'Amount', 'Payment']} fieldMap={{ Description: 'description', Category: 'category', Amount: 'amount', Payment: 'payment_status' }} isCurrency="Amount" />}
+      {activeTab === 'stakeholders' && <DataTab eventId={event.id} endpoint="stakeholders" title="Stakeholders" description="Track stakeholder engagement, influence, and communication plans." columns={['Name', 'Organization', 'Influence', 'Interest']} fieldMap={{ Name: 'name', Organization: 'organization', Influence: 'influence_level', Interest: 'interest_level' }} />}
+      {activeTab === 'governance' && <GovernanceTab eventId={event.id} canEdit={canEdit} />}
 
-      {/* Delete Modal */}
-      <Modal open={deleteModal} onClose={() => setDeleteModal(false)} title="Delete Event" size="sm">
-        <p className="text-sm text-text-secondary mb-4">
-          Are you sure you want to delete <strong>{event.title}</strong>? This will permanently remove all associated tasks, documents, and assignments.
-        </p>
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => setDeleteModal(false)}>Cancel</Button>
-          <Button variant="danger" loading={deleting} onClick={handleDelete}>Delete Event</Button>
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        open={deleteModal}
+        title="Delete this event?"
+        message={`Are you sure you want to delete "${event.title}"? This will permanently remove all associated tasks, documents, and assignments.`}
+        confirmLabel="Delete Event"
+        variant="danger"
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteModal(false)}
+      />
+
+      {/* Duplicate Modal */}
+      {duplicateModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setDuplicateModal(false)}>
+          <div className="bg-surface rounded-xl border border-border p-6 w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-text-primary mb-2">Duplicate Event</h3>
+            <p className="text-sm text-text-secondary mb-4">
+              Create a copy of &quot;{event.title}&quot; with all tasks, team assignments, and vendor assignments.
+            </p>
+            <label className="block text-sm font-medium text-text-primary mb-1.5">New Event Start Date *</label>
+            <input
+              type="date"
+              value={newEventDate}
+              onChange={e => setNewEventDate(e.target.value)}
+              className="w-full h-9 px-3 rounded-md border border-border bg-surface text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setDuplicateModal(false)}>Cancel</Button>
+              <Button size="sm" loading={duplicating} onClick={handleDuplicate}>Duplicate</Button>
+            </div>
+          </div>
         </div>
-      </Modal>
+      )}
     </>
   )
 }
 
+// ─── Setup Progress Checklist ────────────────────────────────
+
+function SetupProgress({ counts }: { counts: Props['counts'] }) {
+  const items = [
+    { label: 'Team assigned', met: counts.assignments > 0, icon: Users },
+    { label: 'Vendors assigned', met: counts.vendors > 0, icon: Truck },
+    { label: 'Tasks created', met: counts.tasks > 0, icon: CheckSquare },
+    { label: 'Budget estimated', met: counts.budgetCalcs > 0, icon: DollarSign },
+    { label: 'Plan generated', met: counts.plans > 0, icon: ClipboardList },
+    { label: 'Risk assessed', met: counts.risks > 0, icon: ShieldAlert },
+  ]
+  const metCount = items.filter(i => i.met).length
+  const percentage = Math.round((metCount / items.length) * 100)
+
+  return (
+    <div className="bg-surface rounded-xl border border-border p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-text-primary">Setup Progress</h3>
+        <span className="text-xs font-medium text-text-secondary">{metCount}/{items.length} complete</span>
+      </div>
+      <div className="w-full bg-gray-100 rounded-full h-2 mb-3">
+        <div
+          className={`h-2 rounded-full transition-all duration-500 ${percentage === 100 ? 'bg-green-500' : 'bg-primary-500'}`}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {items.map(item => {
+          const Icon = item.icon
+          return (
+            <div key={item.label} className={`flex items-center gap-2 text-xs py-1 ${item.met ? 'text-green-600' : 'text-text-tertiary'}`}>
+              {item.met ? <CheckCircle className="h-3.5 w-3.5 shrink-0" /> : <Circle className="h-3.5 w-3.5 shrink-0" />}
+              {item.label}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function OverviewTab({
-  event, counts, taskProgress, recentTasks, teamMembers, canEdit, onStatusChange,
+  event, counts, taskProgress, recentTasks, teamMembers, canEdit, onStatusChange, getGateRequirements,
 }: {
   event: EventData
   counts: Props['counts']
@@ -298,6 +483,7 @@ function OverviewTab({
   teamMembers: Props['teamMembers']
   canEdit: boolean
   onStatusChange: (status: string) => void
+  getGateRequirements: (status: string) => { label: string; met: boolean }[]
 }) {
   // Status workflow
   const statusFlow: Record<string, string[]> = {
@@ -319,16 +505,43 @@ function OverviewTab({
         <StatCard title="Documents" value={counts.documents} icon={FileText} />
       </div>
 
-      {/* Status Actions */}
+      {/* Setup Progress Checklist */}
+      <SetupProgress counts={counts} />
+
+      {/* Status Actions with Governance Gates */}
       {canEdit && nextStatuses.length > 0 && (
         <div className="bg-surface rounded-xl border border-border p-4">
-          <h3 className="text-sm font-medium text-text-primary mb-2">Move to next stage</h3>
-          <div className="flex flex-wrap gap-2">
-            {nextStatuses.map(s => (
-              <Button key={s} variant="outline" size="sm" onClick={() => onStatusChange(s)}>
-                Move to {s.replace(/_/g, ' ')}
-              </Button>
-            ))}
+          <h3 className="text-sm font-medium text-text-primary mb-3">Move to next stage</h3>
+          <div className="space-y-3">
+            {nextStatuses.map((s, i) => {
+              const reqs = getGateRequirements(s)
+              const allMet = reqs.length === 0 || reqs.every(r => r.met)
+              return (
+                <div key={s}>
+                  <div className="flex items-center gap-2">
+                    <Button variant={i === 0 && allMet ? 'primary' : 'outline'} size="sm" onClick={() => onStatusChange(s)}>
+                      Move to {s.replace(/_/g, ' ')}
+                      {i === 0 && <ArrowRight className="h-3.5 w-3.5" />}
+                    </Button>
+                    {!allMet && (
+                      <span className="text-xs text-amber-600 flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" /> Requirements not met
+                      </span>
+                    )}
+                  </div>
+                  {reqs.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-1.5 ml-1">
+                      {reqs.map(r => (
+                        <span key={r.label} className={`text-xs flex items-center gap-1 ${r.met ? 'text-green-600' : 'text-text-tertiary'}`}>
+                          {r.met ? <CheckCircle className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
+                          {r.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
@@ -648,6 +861,22 @@ function TimelineTab({ eventId }: { eventId: number }) {
     }
   }
 
+  async function completeMilestone(milestoneId: number) {
+    try {
+      await fetch('/api/milestones', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: milestoneId, status: 'completed' }),
+      })
+      setMilestones(prev => prev.map(ms =>
+        ms.id === milestoneId ? { ...ms, status: 'completed' } : ms
+      ))
+      toast({ type: 'success', message: 'Milestone completed' })
+    } catch {
+      toast({ type: 'error', message: 'Failed to update milestone' })
+    }
+  }
+
   if (!loaded) return <div className="text-center py-12"><p className="text-sm text-text-tertiary">Loading...</p></div>
 
   const today = new Date()
@@ -700,9 +929,19 @@ function TimelineTab({ eventId }: { eventId: number }) {
                   }`}>
                     <div className="flex items-center justify-between">
                       <h4 className={`text-sm font-medium ${isComplete ? 'text-green-700 line-through' : 'text-text-primary'}`}>{ms.title}</h4>
-                      <span className={`text-xs font-medium ${isPast ? 'text-red-500' : isComplete ? 'text-green-500' : 'text-text-tertiary'}`}>
-                        {due.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-medium ${isPast ? 'text-red-500' : isComplete ? 'text-green-500' : 'text-text-tertiary'}`}>
+                          {due.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                        {!isComplete && (
+                          <button
+                            onClick={() => completeMilestone(ms.id)}
+                            className="px-2 py-0.5 text-[10px] bg-green-100 text-green-700 rounded hover:bg-green-200 cursor-pointer font-medium"
+                          >
+                            Complete
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {ms.description && <p className="text-xs text-text-secondary mt-1">{ms.description}</p>}
                   </div>
@@ -1645,6 +1884,723 @@ function EventDayTab({ eventId }: { eventId: number }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+const LINKOUT_ICONS: Record<string, React.ElementType> = { ClipboardList, BookOpen, Grid3X3 }
+
+function LinkOutTab({ eventId, path, label, description, icon }: { eventId: number; path: string; label: string; description: string; icon: string }) {
+  const Icon = LINKOUT_ICONS[icon] || ExternalLink
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <div className="h-16 w-16 rounded-full bg-primary-50 flex items-center justify-center mb-4">
+        <Icon className="h-8 w-8 text-primary-500" />
+      </div>
+      <h3 className="text-lg font-semibold text-text-primary mb-2">{label}</h3>
+      <p className="text-text-secondary mb-6 max-w-md">{description}</p>
+      <Link href={`/events/${eventId}/${path}`} className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors">
+        Open {label} <ExternalLink className="h-4 w-4" />
+      </Link>
+    </div>
+  )
+}
+
+// ─── Generic Data Tab ────────────────────────────────────
+type FieldMap = Record<string, string | string[]>
+
+function DataTab({ eventId, endpoint, title, description, columns, fieldMap, isCurrency }: {
+  eventId: number; endpoint: string; title: string; description: string
+  columns: string[]; fieldMap: FieldMap; isCurrency?: string
+}) {
+  const [rows, setRows] = useState<Record<string, unknown>[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(`/api/events/${eventId}/${endpoint}`)
+        if (res.ok) {
+          const json = await res.json()
+          setRows(json.data || [])
+        }
+      } catch {}
+      setLoading(false)
+    }
+    load()
+  }, [eventId, endpoint])
+
+  function getCellValue(row: Record<string, unknown>, col: string): string {
+    const field = fieldMap[col]
+    if (Array.isArray(field)) {
+      return field.map(f => String(row[f] || '')).join(' ').trim()
+    }
+    const val = row[field as string]
+    if (isCurrency === col && typeof val === 'number') {
+      return formatCurrency(val)
+    }
+    return val != null ? String(val) : '—'
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="h-12 bg-surface-tertiary rounded-lg animate-pulse" />
+        ))}
+      </div>
+    )
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <h3 className="text-lg font-semibold text-text-primary mb-2">{title}</h3>
+        <p className="text-text-secondary mb-4 max-w-md">{description}</p>
+        <p className="text-sm text-text-tertiary">No {title.toLowerCase()} added yet. Use the API to manage {title.toLowerCase()}.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-base font-semibold text-text-primary">{title}</h3>
+          <p className="text-xs text-text-secondary">{rows.length} {title.toLowerCase()}</p>
+        </div>
+      </div>
+      <div className="bg-surface rounded-xl border border-border overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-surface-secondary">
+                {columns.map(col => (
+                  <th key={col} className="text-left px-4 py-3 font-medium text-text-secondary">{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => (
+                <tr key={i} className="border-b border-border-light last:border-0 hover:bg-surface-secondary/50">
+                  {columns.map(col => (
+                    <td key={col} className="px-4 py-3 text-text-primary">
+                      {col === 'Status' || col === 'Payment' || col === 'Tier' || col === 'Influence' || col === 'Interest' || col === 'Type' ? (
+                        <Badge color={
+                          getCellValue(row, col) === 'confirmed' || getCellValue(row, col) === 'paid' || getCellValue(row, col) === 'checked_in' || getCellValue(row, col) === 'high' ? 'green' :
+                          getCellValue(row, col) === 'pending' || getCellValue(row, col) === 'medium' || getCellValue(row, col) === 'registered' ? 'amber' :
+                          getCellValue(row, col) === 'platinum' || getCellValue(row, col) === 'gold' ? 'purple' :
+                          getCellValue(row, col) === 'cancelled' || getCellValue(row, col) === 'overdue' || getCellValue(row, col) === 'no_show' ? 'red' :
+                          'gray'
+                        }>
+                          {getCellValue(row, col)}
+                        </Badge>
+                      ) : (
+                        getCellValue(row, col)
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Governance Tab ────────────────────────────────────
+function GovernanceTab({ eventId, canEdit }: { eventId: number; canEdit: boolean }) {
+  const { toast } = useToast()
+  const [gates, setGates] = useState<Record<string, unknown>[]>([])
+  const [quality, setQuality] = useState<Record<string, unknown>[]>([])
+  const [metrics, setMetrics] = useState<Record<string, unknown>[]>([])
+  const [loading, setLoading] = useState(true)
+
+  // Modal states
+  const [gateModal, setGateModal] = useState(false)
+  const [qualityModal, setQualityModal] = useState(false)
+  const [metricModal, setMetricModal] = useState(false)
+  const [reviewModal, setReviewModal] = useState<Record<string, unknown> | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: string; id: number; name: string } | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  // Form states
+  const [gateForm, setGateForm] = useState({ gate_name: '', phase: 'planning', required_deliverables: '' })
+  const [qualityForm, setQualityForm] = useState({ category: '', criterion: '', measurement: '', target_value: '', actual_value: '' })
+  const [metricForm, setMetricForm] = useState({ metric_name: '', category: '', target_value: '', actual_value: '', unit: '', notes: '' })
+  const [reviewForm, setReviewForm] = useState({ status: 'passed', review_notes: '' })
+
+  async function load() {
+    const [g, q, m] = await Promise.all([
+      fetch(`/api/events/${eventId}/stage-gates`).then(r => r.ok ? r.json() : { data: [] }),
+      fetch(`/api/events/${eventId}/quality-criteria`).then(r => r.ok ? r.json() : { data: [] }),
+      fetch(`/api/events/${eventId}/success-metrics`).then(r => r.ok ? r.json() : { data: [] }),
+    ])
+    setGates(g.data || [])
+    setQuality(q.data || [])
+    setMetrics(m.data || [])
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [eventId])
+
+  async function addGate() {
+    if (!gateForm.gate_name.trim()) return
+    setSaving(true)
+    const deliverables = gateForm.required_deliverables.trim()
+      ? gateForm.required_deliverables.split('\n').map(d => d.trim()).filter(Boolean)
+      : null
+    const res = await fetch(`/api/events/${eventId}/stage-gates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...gateForm, required_deliverables: deliverables }),
+    })
+    if (res.ok) {
+      toast('success', 'Stage gate added')
+      setGateModal(false)
+      setGateForm({ gate_name: '', phase: 'planning', required_deliverables: '' })
+      load()
+    } else {
+      toast('error', 'Failed to add gate')
+    }
+    setSaving(false)
+  }
+
+  async function reviewGate() {
+    if (!reviewModal) return
+    setSaving(true)
+    const res = await fetch(`/api/events/${eventId}/stage-gates/${reviewModal.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(reviewForm),
+    })
+    if (res.ok) {
+      toast('success', `Gate marked as ${reviewForm.status}`)
+      setReviewModal(null)
+      setReviewForm({ status: 'passed', review_notes: '' })
+      load()
+    } else {
+      toast('error', 'Failed to update gate')
+    }
+    setSaving(false)
+  }
+
+  async function addQuality() {
+    if (!qualityForm.category.trim() || !qualityForm.criterion.trim()) return
+    setSaving(true)
+    const res = await fetch(`/api/events/${eventId}/quality-criteria`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(qualityForm),
+    })
+    if (res.ok) {
+      toast('success', 'Quality criterion added')
+      setQualityModal(false)
+      setQualityForm({ category: '', criterion: '', measurement: '', target_value: '', actual_value: '' })
+      load()
+    } else {
+      toast('error', 'Failed to add criterion')
+    }
+    setSaving(false)
+  }
+
+  async function addMetric() {
+    if (!metricForm.metric_name.trim() || !metricForm.target_value.trim()) return
+    setSaving(true)
+    const res = await fetch(`/api/events/${eventId}/success-metrics`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(metricForm),
+    })
+    if (res.ok) {
+      toast('success', 'Success metric added')
+      setMetricModal(false)
+      setMetricForm({ metric_name: '', category: '', target_value: '', actual_value: '', unit: '', notes: '' })
+      load()
+    } else {
+      toast('error', 'Failed to add metric')
+    }
+    setSaving(false)
+  }
+
+  async function handleDelete() {
+    if (!deleteConfirm) return
+    setSaving(true)
+    const endpointMap: Record<string, string> = {
+      gate: `stage-gates/${deleteConfirm.id}`,
+      quality: `quality-criteria/${deleteConfirm.id}`,
+      metric: `success-metrics/${deleteConfirm.id}`,
+    }
+    const res = await fetch(`/api/events/${eventId}/${endpointMap[deleteConfirm.type]}`, { method: 'DELETE' })
+    if (res.ok) {
+      toast('success', `${deleteConfirm.name} deleted`)
+      setDeleteConfirm(null)
+      load()
+    } else {
+      toast('error', 'Failed to delete')
+    }
+    setSaving(false)
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="h-20 bg-surface-tertiary rounded-xl animate-pulse" />
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-8">
+      {/* Stage Gates */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-semibold text-text-primary flex items-center gap-2">
+            <GanttChart className="h-4 w-4 text-primary-500" />
+            Stage Gates
+          </h3>
+          {canEdit && (
+            <Button size="sm" onClick={() => setGateModal(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Add Gate
+            </Button>
+          )}
+        </div>
+        {gates.length === 0 ? (
+          <p className="text-sm text-text-tertiary bg-surface-secondary rounded-lg p-4">No stage gates defined yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {gates.map((gate, i) => {
+              const deliverables = gate.required_deliverables
+                ? (typeof gate.required_deliverables === 'string' ? (() => { try { return JSON.parse(gate.required_deliverables as string) } catch { return [] } })() : gate.required_deliverables)
+                : []
+              return (
+                <div key={String(gate.id)} className="bg-surface rounded-xl border border-border p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                        gate.status === 'passed' ? 'bg-green-100 text-green-700' :
+                        gate.status === 'failed' ? 'bg-red-100 text-red-700' :
+                        gate.status === 'waived' ? 'bg-amber-100 text-amber-700' :
+                        'bg-surface-tertiary text-text-tertiary'
+                      }`}>
+                        {gate.status === 'passed' ? <CheckCircle className="h-4 w-4" /> : gate.status === 'failed' ? <AlertTriangle className="h-4 w-4" /> : i + 1}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-text-primary">{String(gate.gate_name)}</p>
+                        <p className="text-xs text-text-tertiary capitalize">{String(gate.phase)} phase</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge color={
+                        gate.status === 'passed' ? 'green' :
+                        gate.status === 'failed' ? 'red' :
+                        gate.status === 'waived' ? 'amber' : 'gray'
+                      }>
+                        {String(gate.status)}
+                      </Badge>
+                      {canEdit && gate.status === 'pending' && (
+                        <Button size="sm" variant="outline" onClick={() => {
+                          setReviewModal(gate)
+                          setReviewForm({ status: 'passed', review_notes: '' })
+                        }}>
+                          Review
+                        </Button>
+                      )}
+                      {canEdit && (
+                        <button
+                          onClick={() => setDeleteConfirm({ type: 'gate', id: Number(gate.id), name: String(gate.gate_name) })}
+                          className="p-1 text-text-tertiary hover:text-red-500 transition-colors"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {Array.isArray(deliverables) && deliverables.length > 0 && (
+                    <div className="mt-3 pl-11">
+                      <p className="text-xs font-medium text-text-secondary mb-1">Required Deliverables</p>
+                      <ul className="space-y-1">
+                        {deliverables.map((d: string, j: number) => (
+                          <li key={j} className="text-xs text-text-tertiary flex items-center gap-1.5">
+                            <Circle className="h-2 w-2 flex-shrink-0" />
+                            {d}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {String(gate.review_notes || '') && (
+                    <div className="mt-2 pl-11">
+                      <p className="text-xs text-text-tertiary italic">
+                        {gate.reviewer_first_name ? `${String(gate.reviewer_first_name)} ${String(gate.reviewer_last_name || '')}: ` : ''}
+                        {String(gate.review_notes)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Quality Criteria */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-semibold text-text-primary flex items-center gap-2">
+            <Target className="h-4 w-4 text-primary-500" />
+            Quality Criteria
+          </h3>
+          {canEdit && (
+            <Button size="sm" onClick={() => setQualityModal(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Add Criterion
+            </Button>
+          )}
+        </div>
+        {quality.length === 0 ? (
+          <p className="text-sm text-text-tertiary bg-surface-secondary rounded-lg p-4">No quality criteria defined yet.</p>
+        ) : (
+          <div className="bg-surface rounded-xl border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-surface-secondary">
+                  <th className="text-left px-4 py-3 font-medium text-text-secondary">Category</th>
+                  <th className="text-left px-4 py-3 font-medium text-text-secondary">Criterion</th>
+                  <th className="text-left px-4 py-3 font-medium text-text-secondary">Target</th>
+                  <th className="text-left px-4 py-3 font-medium text-text-secondary">Actual</th>
+                  <th className="text-left px-4 py-3 font-medium text-text-secondary">Status</th>
+                  {canEdit && <th className="text-right px-4 py-3 font-medium text-text-secondary w-20">Actions</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {quality.map((q) => (
+                  <tr key={String(q.id)} className="border-b border-border-light last:border-0">
+                    <td className="px-4 py-3 text-text-tertiary text-xs capitalize">{String(q.category)}</td>
+                    <td className="px-4 py-3 text-text-primary">{String(q.criterion)}</td>
+                    <td className="px-4 py-3 text-text-secondary">{String(q.target_value || '-')}</td>
+                    <td className="px-4 py-3 text-text-secondary">{String(q.actual_value || '-')}</td>
+                    <td className="px-4 py-3">
+                      <Badge color={
+                        q.status === 'met' || q.status === 'exceeded' ? 'green' :
+                        q.status === 'not_met' ? 'red' : 'gray'
+                      }>
+                        {String(q.status)}
+                      </Badge>
+                    </td>
+                    {canEdit && (
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => setDeleteConfirm({ type: 'quality', id: Number(q.id), name: String(q.criterion) })}
+                          className="p-1 text-text-tertiary hover:text-red-500 transition-colors"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Success Metrics */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-semibold text-text-primary flex items-center gap-2">
+            <Rocket className="h-4 w-4 text-primary-500" />
+            Success Metrics
+          </h3>
+          {canEdit && (
+            <Button size="sm" onClick={() => setMetricModal(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Add Metric
+            </Button>
+          )}
+        </div>
+        {metrics.length === 0 ? (
+          <p className="text-sm text-text-tertiary bg-surface-secondary rounded-lg p-4">No success metrics defined yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {metrics.map((m) => (
+              <div key={String(m.id)} className="bg-surface rounded-xl border border-border p-4 relative group">
+                {canEdit && (
+                  <button
+                    onClick={() => setDeleteConfirm({ type: 'metric', id: Number(m.id), name: String(m.metric_name) })}
+                    className="absolute top-3 right-3 p-1 text-text-tertiary hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                <p className="text-xs text-text-tertiary capitalize mb-1">{String(m.category || 'General')}</p>
+                <p className="text-sm font-medium text-text-primary mb-2">{String(m.metric_name)}</p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] text-text-tertiary">Target</p>
+                    <p className="text-sm font-semibold text-text-primary">{String(m.target_value)}{m.unit ? ` ${m.unit}` : ''}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[11px] text-text-tertiary">Actual</p>
+                    <p className={`text-sm font-semibold ${m.achieved ? 'text-green-600' : m.actual_value ? 'text-amber-600' : 'text-text-tertiary'}`}>
+                      {m.actual_value ? `${String(m.actual_value)}${m.unit ? ` ${m.unit}` : ''}` : '-'}
+                    </p>
+                  </div>
+                </div>
+                {m.achieved !== null && m.achieved !== undefined && (
+                  <div className="mt-2 flex justify-end">
+                    <Badge color={m.achieved ? 'green' : 'red'}>
+                      {m.achieved ? 'Achieved' : 'Not Achieved'}
+                    </Badge>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Add Stage Gate Modal */}
+      <Modal open={gateModal} onClose={() => setGateModal(false)} title="Add Stage Gate">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Gate Name *</label>
+            <input
+              type="text"
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder="e.g., Planning Approval Gate"
+              value={gateForm.gate_name}
+              onChange={e => setGateForm(f => ({ ...f, gate_name: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Phase *</label>
+            <select
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+              value={gateForm.phase}
+              onChange={e => setGateForm(f => ({ ...f, phase: e.target.value }))}
+            >
+              <option value="initiation">Initiation</option>
+              <option value="planning">Planning</option>
+              <option value="execution">Execution</option>
+              <option value="closure">Closure</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Required Deliverables</label>
+            <textarea
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder="One deliverable per line"
+              rows={3}
+              value={gateForm.required_deliverables}
+              onChange={e => setGateForm(f => ({ ...f, required_deliverables: e.target.value }))}
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setGateModal(false)}>Cancel</Button>
+            <Button onClick={addGate} disabled={saving || !gateForm.gate_name.trim()}>
+              {saving ? 'Adding...' : 'Add Gate'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Review Gate Modal */}
+      <Modal open={!!reviewModal} onClose={() => setReviewModal(null)} title={`Review: ${reviewModal ? String(reviewModal.gate_name) : ''}`}>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Decision *</label>
+            <select
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+              value={reviewForm.status}
+              onChange={e => setReviewForm(f => ({ ...f, status: e.target.value }))}
+            >
+              <option value="passed">Pass</option>
+              <option value="failed">Fail</option>
+              <option value="waived">Waive</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Review Notes</label>
+            <textarea
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder="Add review comments..."
+              rows={3}
+              value={reviewForm.review_notes}
+              onChange={e => setReviewForm(f => ({ ...f, review_notes: e.target.value }))}
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setReviewModal(null)}>Cancel</Button>
+            <Button onClick={reviewGate} disabled={saving}>
+              {saving ? 'Saving...' : 'Submit Review'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Add Quality Criterion Modal */}
+      <Modal open={qualityModal} onClose={() => setQualityModal(false)} title="Add Quality Criterion">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Category *</label>
+            <input
+              type="text"
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder="e.g., Venue, Catering, Production"
+              value={qualityForm.category}
+              onChange={e => setQualityForm(f => ({ ...f, category: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Criterion *</label>
+            <input
+              type="text"
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder="e.g., AV equipment tested 24h before event"
+              value={qualityForm.criterion}
+              onChange={e => setQualityForm(f => ({ ...f, criterion: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Measurement Method</label>
+            <input
+              type="text"
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder="How will this be measured?"
+              value={qualityForm.measurement}
+              onChange={e => setQualityForm(f => ({ ...f, measurement: e.target.value }))}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1">Target Value</label>
+              <input
+                type="text"
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="e.g., 100%"
+                value={qualityForm.target_value}
+                onChange={e => setQualityForm(f => ({ ...f, target_value: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1">Actual Value</label>
+              <input
+                type="text"
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="Leave blank if not yet measured"
+                value={qualityForm.actual_value}
+                onChange={e => setQualityForm(f => ({ ...f, actual_value: e.target.value }))}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setQualityModal(false)}>Cancel</Button>
+            <Button onClick={addQuality} disabled={saving || !qualityForm.category.trim() || !qualityForm.criterion.trim()}>
+              {saving ? 'Adding...' : 'Add Criterion'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Add Success Metric Modal */}
+      <Modal open={metricModal} onClose={() => setMetricModal(false)} title="Add Success Metric">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Metric Name *</label>
+            <input
+              type="text"
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder="e.g., Total Attendance"
+              value={metricForm.metric_name}
+              onChange={e => setMetricForm(f => ({ ...f, metric_name: e.target.value }))}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1">Category</label>
+              <select
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+                value={metricForm.category}
+                onChange={e => setMetricForm(f => ({ ...f, category: e.target.value }))}
+              >
+                <option value="">Select category</option>
+                <option value="attendance">Attendance</option>
+                <option value="satisfaction">Satisfaction</option>
+                <option value="revenue">Revenue</option>
+                <option value="engagement">Engagement</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1">Unit</label>
+              <select
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+                value={metricForm.unit}
+                onChange={e => setMetricForm(f => ({ ...f, unit: e.target.value }))}
+              >
+                <option value="">Select unit</option>
+                <option value="count">Count</option>
+                <option value="percentage">Percentage</option>
+                <option value="SAR">SAR</option>
+                <option value="rating">Rating</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1">Target Value *</label>
+              <input
+                type="text"
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="e.g., 500"
+                value={metricForm.target_value}
+                onChange={e => setMetricForm(f => ({ ...f, target_value: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1">Actual Value</label>
+              <input
+                type="text"
+                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="Leave blank if not yet measured"
+                value={metricForm.actual_value}
+                onChange={e => setMetricForm(f => ({ ...f, actual_value: e.target.value }))}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1">Notes</label>
+            <textarea
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder="Additional notes..."
+              rows={2}
+              value={metricForm.notes}
+              onChange={e => setMetricForm(f => ({ ...f, notes: e.target.value }))}
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setMetricModal(false)}>Cancel</Button>
+            <Button onClick={addMetric} disabled={saving || !metricForm.metric_name.trim() || !metricForm.target_value.trim()}>
+              {saving ? 'Adding...' : 'Add Metric'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        open={!!deleteConfirm}
+        title={`Delete ${deleteConfirm?.name}?`}
+        message="This action cannot be undone."
+        confirmLabel="Delete"
+        variant="danger"
+        loading={saving}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   )
 }

@@ -86,3 +86,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const session = await getSession()
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const issueId = req.nextUrl.searchParams.get('issue_id')
+    if (!issueId) return NextResponse.json({ error: 'issue_id required' }, { status: 400 })
+
+    await db.delete(event_issues).where(eq(event_issues.id, Number(issueId)))
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('API error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}

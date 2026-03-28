@@ -1,266 +1,638 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { PageHeader } from '@/components/layout/page-header'
-import { Button } from '@/components/ui/button'
 import { StatCard } from '@/components/ui/stat-card'
+import { StatusBadge } from '@/components/ui/status-badge'
+import { formatCurrency, formatDate } from '@/lib/utils'
 import {
-  CalendarDays, CheckSquare, Building2, Truck, Mic, Presentation,
-  FileText, ClipboardCheck, Download, BarChart3, PieChart,
+  CalendarDays, CheckSquare, DollarSign, Users, TrendingUp,
+  AlertTriangle, Star, Clock, BarChart3, Activity,
+  ChevronDown, Loader2,
 } from 'lucide-react'
 
+// ─── Types ───────────────────────────────────────────────────
+
+type EventOption = { id: number; title: string; status: string }
+
+type PortfolioData = {
+  events_by_status: { status: string; count: number }[]
+  total_events: number
+  revenue_pipeline: { status: string; total_budget: string | null }[]
+  task_stats: { total: number; completed: number; completion_rate: number; overdue: number }
+  resource_utilization: { total_hours: number; active_users: number; avg_hours_per_user: number }
+  vendor_performance: { avg_quality: number; avg_timeliness: number; avg_communication: number; avg_value: number; avg_overall: number; total_ratings: number }
+  client_satisfaction: { avg_nps: number; avg_overall_rating: number; total_responses: number }
+  budget_summary: { total_estimated: number; total_actual: number; variance: number }
+  events: { id: number; title: string; status: string; start_date: string | null; end_date: string | null; budget_estimated: number | null; budget_actual: number | null; completion_percentage: number | null; health_score: string | null }[]
+}
+
+type EventReportData = {
+  event: { id: number; title: string; status: string; start_date: string | null; end_date: string | null; venue_name: string | null; health_score: string | null; expected_attendees: number | null }
+  task_completion: { total: number; completed: number; percentage: number }
+  budget: { estimated: number; actual: number; variance: number; expense_count: number }
+  team_utilization: { total_hours: number; members: { user_id: number; name: string; hours: number }[] }
+  vendor_summary: { status: string; count: number }[]
+  attendee_stats: { total: number; registered: number; checked_in: number; cancelled: number; no_show: number }
+  risk_count: number
+  lessons_learned_count: number
+  feedback: { avg_nps: number; avg_rating: number; response_count: number }
+}
+
+type UtilizationUser = { user_id: number; name: string; total_hours: number; billable_hours: number; avg_weekly_hours: number; entry_count: number }
+type EventAllocation = { user_id: number; name: string; event_id: number | null; event_title: string; hours: number }
+
+type UtilizationData = {
+  date_range: { from: string | null; to: string | null; weeks: number }
+  users: UtilizationUser[]
+  by_event: EventAllocation[]
+  over_allocated: UtilizationUser[]
+}
+
 type Props = {
-  summary: {
-    events: number
-    tasks: number
-    tasksDone: number
-    clients: number
-    vendors: number
-    speakers: number
-    exhibitors: number
-    documents: number
-    approvals: number
-  }
-  eventStatuses: { status: string; count: number }[]
-  taskStatuses: { status: string; count: number }[]
-  taskPriorities: { priority: string; count: number }[]
-  approvalStatuses: { status: string; count: number }[]
-  eventsByMonth: { month: string; count: number }[]
+  events: EventOption[]
 }
 
-const EVENT_STATUS_COLORS: Record<string, string> = {
-  draft: '#9CA3AF',
-  planning: '#3B82F6',
-  confirmed: '#312C6A',
-  in_progress: '#F59E0B',
-  completed: '#10B981',
-  cancelled: '#EF4444',
-  postponed: '#F97316',
+// ─── Tabs ────────────────────────────────────────────────────
+
+const TABS = [
+  { key: 'portfolio', label: 'Portfolio' },
+  { key: 'event', label: 'Event' },
+  { key: 'utilization', label: 'Utilization' },
+] as const
+
+type TabKey = typeof TABS[number]['key']
+
+// ─── Helpers ─────────────────────────────────────────────────
+
+const HEALTH_COLORS: Record<string, string> = {
+  green: 'bg-green-100 text-green-700',
+  amber: 'bg-amber-100 text-amber-700',
+  red: 'bg-red-100 text-red-700',
 }
 
-const TASK_STATUS_COLORS: Record<string, string> = {
-  todo: '#9CA3AF',
-  in_progress: '#3B82F6',
-  in_review: '#312C6A',
-  blocked: '#EF4444',
-  done: '#10B981',
-  cancelled: '#6B7280',
+function HealthBadge({ score }: { score: string | null }) {
+  const cls = HEALTH_COLORS[score ?? ''] ?? 'bg-gray-100 text-gray-600'
+  return <span className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${cls}`}>{score ?? 'N/A'}</span>
 }
 
-const PRIORITY_COLORS: Record<string, string> = {
-  low: '#9CA3AF',
-  medium: '#3B82F6',
-  high: '#F59E0B',
-  urgent: '#EF4444',
-}
-
-const APPROVAL_STATUS_COLORS: Record<string, string> = {
-  pending: '#F59E0B',
-  in_review: '#3B82F6',
-  approved: '#10B981',
-  rejected: '#EF4444',
-  cancelled: '#6B7280',
-}
-
-function BarChart({ data, colorMap, label }: { data: { key: string; count: number }[]; colorMap: Record<string, string>; label: string }) {
-  const max = Math.max(...data.map(d => d.count), 1)
+function ProgressBar({ value, max, color = 'bg-primary-500' }: { value: number; max: number; color?: string }) {
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0
   return (
-    <div className="space-y-2">
-      {data.map(d => (
-        <div key={d.key} className="flex items-center gap-3">
-          <span className="text-xs text-text-secondary w-24 truncate capitalize">{d.key.replace(/_/g, ' ')}</span>
-          <div className="flex-1 h-6 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${(d.count / max) * 100}%`, backgroundColor: colorMap[d.key] || '#9CA3AF', minWidth: d.count > 0 ? '8px' : '0' }}
-            />
-          </div>
-          <span className="text-xs font-medium text-text-primary w-8 text-right">{d.count}</span>
-        </div>
-      ))}
+    <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+      <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
     </div>
   )
 }
 
-function DonutChart({ data, colorMap }: { data: { key: string; count: number }[]; colorMap: Record<string, string> }) {
-  const total = data.reduce((sum, d) => sum + d.count, 0)
-  if (total === 0) return <p className="text-sm text-text-tertiary text-center py-8">No data</p>
+function EmptyState({ message }: { message: string }) {
+  return <p className="text-sm text-text-tertiary text-center py-12">{message}</p>
+}
 
-  let accumulated = 0
-  const segments = data.filter(d => d.count > 0).map(d => {
-    const start = accumulated
-    const pct = (d.count / total) * 100
-    accumulated += pct
-    return { ...d, start, pct }
-  })
-
-  // Build conic-gradient
-  const gradientParts = segments.map(s =>
-    `${colorMap[s.key] || '#9CA3AF'} ${s.start}% ${s.start + s.pct}%`
-  )
-  const gradient = `conic-gradient(${gradientParts.join(', ')})`
-
+function LoadingSpinner() {
   return (
-    <div className="flex items-center gap-6">
-      <div
-        className="w-28 h-28 rounded-full shrink-0 relative"
-        style={{ background: gradient }}
-      >
-        <div className="absolute inset-3 bg-surface rounded-full flex items-center justify-center">
-          <span className="text-lg font-bold text-text-primary">{total}</span>
-        </div>
-      </div>
-      <div className="space-y-1.5">
-        {segments.map(s => (
-          <div key={s.key} className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: colorMap[s.key] || '#9CA3AF' }} />
-            <span className="text-xs text-text-secondary capitalize">{s.key.replace(/_/g, ' ')}</span>
-            <span className="text-xs font-medium text-text-primary">{s.count}</span>
-          </div>
-        ))}
-      </div>
+    <div className="flex items-center justify-center py-16">
+      <Loader2 className="h-6 w-6 text-primary-500 animate-spin" />
     </div>
   )
 }
 
-function MonthChart({ data }: { data: { month: string; count: number }[] }) {
-  const max = Math.max(...data.map(d => d.count), 1)
-  if (data.length === 0) return <p className="text-sm text-text-tertiary text-center py-8">No events in the last 6 months</p>
+// ─── Main Component ──────────────────────────────────────────
 
-  return (
-    <div className="flex items-end gap-2 h-32">
-      {data.map(d => {
-        const height = (d.count / max) * 100
-        const monthLabel = new Date(d.month + '-01').toLocaleDateString('en-US', { month: 'short' })
-        return (
-          <div key={d.month} className="flex-1 flex flex-col items-center gap-1">
-            <span className="text-xs font-medium text-text-primary">{d.count}</span>
-            <div className="w-full bg-gray-100 rounded-t-md relative" style={{ height: '100px' }}>
-              <div
-                className="absolute bottom-0 w-full bg-primary-500 rounded-t-md transition-all"
-                style={{ height: `${height}%`, minHeight: d.count > 0 ? '4px' : '0' }}
-              />
-            </div>
-            <span className="text-[10px] text-text-tertiary">{monthLabel}</span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-export function ReportsClient({ summary, eventStatuses, taskStatuses, taskPriorities, approvalStatuses, eventsByMonth }: Props) {
-  function exportCSV() {
-    const rows = [
-      ['Metric', 'Value'],
-      ['Total Events', summary.events],
-      ['Total Tasks', summary.tasks],
-      ['Completed Tasks', summary.tasksDone],
-      ['Clients', summary.clients],
-      ['Vendors', summary.vendors],
-      ['Speakers', summary.speakers],
-      ['Exhibitors', summary.exhibitors],
-      ['Documents', summary.documents],
-      ['Approvals', summary.approvals],
-      [''],
-      ['Event Statuses'],
-      ...eventStatuses.map(r => [r.status, r.count]),
-      [''],
-      ['Task Statuses'],
-      ...taskStatuses.map(r => [r.status, r.count]),
-      [''],
-      ['Task Priorities'],
-      ...taskPriorities.map(r => [r.priority, r.count]),
-    ]
-    const csv = rows.map(r => Array.isArray(r) ? r.join(',') : r).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `teems-report-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  const taskCompletion = summary.tasks > 0 ? Math.round((summary.tasksDone / summary.tasks) * 100) : 0
+export function ReportsClient({ events: eventOptions }: Props) {
+  const [activeTab, setActiveTab] = useState<TabKey>('portfolio')
 
   return (
     <>
       <PageHeader
-        title="Reports"
-        description="System-wide statistics and insights"
-        actions={<Button variant="outline" onClick={exportCSV}><Download className="h-4 w-4" /> Export CSV</Button>}
+        title="Executive Reports"
+        description="Portfolio analytics, event performance, and resource utilization"
       />
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
-        <StatCard title="Events" value={summary.events} icon={CalendarDays} />
-        <StatCard title="Tasks" value={summary.tasks} subtitle={`${taskCompletion}% complete`} icon={CheckSquare} />
-        <StatCard title="Clients" value={summary.clients} icon={Building2} />
-        <StatCard title="Vendors" value={summary.vendors} icon={Truck} />
-        <StatCard title="Documents" value={summary.documents} icon={FileText} />
+      {/* Tab bar */}
+      <div className="flex gap-1 border-b border-border mb-6">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-4 py-2.5 text-sm font-medium transition-colors relative ${
+              activeTab === tab.key
+                ? 'text-primary-600'
+                : 'text-text-tertiary hover:text-text-primary'
+            }`}
+          >
+            {tab.label}
+            {activeTab === tab.key && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary-500 rounded-t" />
+            )}
+          </button>
+        ))}
       </div>
 
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        {/* Event Status */}
-        <div className="bg-surface rounded-xl border border-border p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <PieChart className="h-4 w-4 text-text-tertiary" />
-            <h3 className="text-sm font-semibold text-text-primary">Event Status Distribution</h3>
-          </div>
-          <DonutChart
-            data={eventStatuses.map(s => ({ key: s.status, count: s.count }))}
-            colorMap={EVENT_STATUS_COLORS}
-          />
-        </div>
-
-        {/* Task Status */}
-        <div className="bg-surface rounded-xl border border-border p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <BarChart3 className="h-4 w-4 text-text-tertiary" />
-            <h3 className="text-sm font-semibold text-text-primary">Task Status Breakdown</h3>
-          </div>
-          <BarChart
-            data={taskStatuses.map(s => ({ key: s.status, count: s.count }))}
-            colorMap={TASK_STATUS_COLORS}
-            label="Tasks"
-          />
-        </div>
-
-        {/* Task Priorities */}
-        <div className="bg-surface rounded-xl border border-border p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <PieChart className="h-4 w-4 text-text-tertiary" />
-            <h3 className="text-sm font-semibold text-text-primary">Task Priorities</h3>
-          </div>
-          <DonutChart
-            data={taskPriorities.map(s => ({ key: s.priority, count: s.count }))}
-            colorMap={PRIORITY_COLORS}
-          />
-        </div>
-
-        {/* Approval Status */}
-        <div className="bg-surface rounded-xl border border-border p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <ClipboardCheck className="h-4 w-4 text-text-tertiary" />
-            <h3 className="text-sm font-semibold text-text-primary">Approval Status</h3>
-          </div>
-          <BarChart
-            data={approvalStatuses.map(s => ({ key: s.status, count: s.count }))}
-            colorMap={APPROVAL_STATUS_COLORS}
-            label="Approvals"
-          />
-        </div>
-      </div>
-
-      {/* Events Timeline */}
-      <div className="bg-surface rounded-xl border border-border p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <CalendarDays className="h-4 w-4 text-text-tertiary" />
-          <h3 className="text-sm font-semibold text-text-primary">Events by Month (Last 6 Months)</h3>
-        </div>
-        <MonthChart data={eventsByMonth} />
-      </div>
+      {activeTab === 'portfolio' && <PortfolioTab />}
+      {activeTab === 'event' && <EventTab eventOptions={eventOptions} />}
+      {activeTab === 'utilization' && <UtilizationTab />}
     </>
+  )
+}
+
+// ─── Portfolio Tab ───────────────────────────────────────────
+
+function PortfolioTab() {
+  const [data, setData] = useState<PortfolioData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/reports/portfolio')
+      .then((r) => r.json())
+      .then((res) => setData(res.data))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <LoadingSpinner />
+  if (!data) return <EmptyState message="Failed to load portfolio data" />
+
+  const budgetVariancePct = data.budget_summary.total_estimated > 0
+    ? Math.round(((data.budget_summary.total_estimated - data.budget_summary.total_actual) / data.budget_summary.total_estimated) * 100)
+    : 0
+
+  return (
+    <div className="space-y-6">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          title="Total Events"
+          value={data.total_events}
+          subtitle={`${data.events_by_status.find((e) => e.status === 'in_progress')?.count ?? 0} active`}
+          icon={CalendarDays}
+        />
+        <StatCard
+          title="Task Completion"
+          value={`${data.task_stats.completion_rate}%`}
+          subtitle={`${data.task_stats.completed}/${data.task_stats.total} tasks`}
+          icon={CheckSquare}
+        />
+        <StatCard
+          title="Budget Variance"
+          value={budgetVariancePct > 0 ? `${budgetVariancePct}% under` : budgetVariancePct < 0 ? `${Math.abs(budgetVariancePct)}% over` : 'On budget'}
+          subtitle={`${formatCurrency(data.budget_summary.total_actual)} of ${formatCurrency(data.budget_summary.total_estimated)}`}
+          icon={DollarSign}
+        />
+        <StatCard
+          title="Avg NPS"
+          value={data.client_satisfaction.avg_nps ? data.client_satisfaction.avg_nps.toFixed(1) : 'N/A'}
+          subtitle={`${data.client_satisfaction.total_responses} responses`}
+          icon={Star}
+        />
+      </div>
+
+      {/* Secondary metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-surface rounded-xl border border-border p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            <span className="text-sm text-text-secondary">Overdue Tasks</span>
+          </div>
+          <p className="text-2xl font-semibold text-text-primary">{data.task_stats.overdue}</p>
+        </div>
+        <div className="bg-surface rounded-xl border border-border p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Users className="h-4 w-4 text-primary-500" />
+            <span className="text-sm text-text-secondary">Active Resources</span>
+          </div>
+          <p className="text-2xl font-semibold text-text-primary">{data.resource_utilization.active_users}</p>
+          <p className="text-xs text-text-tertiary">{data.resource_utilization.avg_hours_per_user}h avg/user</p>
+        </div>
+        <div className="bg-surface rounded-xl border border-border p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <TrendingUp className="h-4 w-4 text-green-500" />
+            <span className="text-sm text-text-secondary">Vendor Avg Rating</span>
+          </div>
+          <p className="text-2xl font-semibold text-text-primary">
+            {data.vendor_performance.avg_overall ? data.vendor_performance.avg_overall.toFixed(1) : 'N/A'}
+            <span className="text-sm text-text-tertiary font-normal">/5</span>
+          </p>
+          <p className="text-xs text-text-tertiary">{data.vendor_performance.total_ratings} ratings</p>
+        </div>
+        <div className="bg-surface rounded-xl border border-border p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Clock className="h-4 w-4 text-primary-500" />
+            <span className="text-sm text-text-secondary">Total Hours Logged</span>
+          </div>
+          <p className="text-2xl font-semibold text-text-primary">{data.resource_utilization.total_hours.toLocaleString()}h</p>
+        </div>
+      </div>
+
+      {/* Event list table */}
+      <div className="bg-surface rounded-xl border border-border">
+        <div className="px-5 py-4 border-b border-border">
+          <h3 className="text-sm font-semibold text-text-primary">All Events</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left px-5 py-3 text-xs font-medium text-text-tertiary uppercase">Event</th>
+                <th className="text-left px-3 py-3 text-xs font-medium text-text-tertiary uppercase">Status</th>
+                <th className="text-left px-3 py-3 text-xs font-medium text-text-tertiary uppercase">Health</th>
+                <th className="text-left px-3 py-3 text-xs font-medium text-text-tertiary uppercase">Dates</th>
+                <th className="text-right px-3 py-3 text-xs font-medium text-text-tertiary uppercase">Budget Est.</th>
+                <th className="text-right px-3 py-3 text-xs font-medium text-text-tertiary uppercase">Budget Act.</th>
+                <th className="text-right px-5 py-3 text-xs font-medium text-text-tertiary uppercase">Completion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.events.map((event) => (
+                <tr key={event.id} className="border-b border-border/50 hover:bg-surface-secondary transition-colors">
+                  <td className="px-5 py-3 font-medium text-text-primary">{event.title}</td>
+                  <td className="px-3 py-3"><StatusBadge type="event" value={event.status} /></td>
+                  <td className="px-3 py-3"><HealthBadge score={event.health_score} /></td>
+                  <td className="px-3 py-3 text-text-secondary whitespace-nowrap">
+                    {event.start_date ? formatDate(event.start_date) : '—'}
+                  </td>
+                  <td className="px-3 py-3 text-right text-text-secondary">{formatCurrency(event.budget_estimated)}</td>
+                  <td className="px-3 py-3 text-right text-text-secondary">{formatCurrency(event.budget_actual)}</td>
+                  <td className="px-5 py-3 text-right">
+                    <div className="flex items-center gap-2 justify-end">
+                      <div className="w-16">
+                        <ProgressBar value={event.completion_percentage ?? 0} max={100} />
+                      </div>
+                      <span className="text-xs text-text-secondary w-8 text-right">{event.completion_percentage ?? 0}%</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {data.events.length === 0 && (
+                <tr><td colSpan={7}><EmptyState message="No events found" /></td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Event Tab ───────────────────────────────────────────────
+
+function EventTab({ eventOptions }: { eventOptions: EventOption[] }) {
+  const [selectedEventId, setSelectedEventId] = useState<number | null>(null)
+  const [data, setData] = useState<EventReportData | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!selectedEventId) return
+    setLoading(true)
+    fetch(`/api/reports/event/${selectedEventId}`)
+      .then((r) => r.json())
+      .then((res) => setData(res.data))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [selectedEventId])
+
+  return (
+    <div className="space-y-6">
+      {/* Event selector */}
+      <div className="relative max-w-md">
+        <select
+          value={selectedEventId ?? ''}
+          onChange={(e) => setSelectedEventId(e.target.value ? Number(e.target.value) : null)}
+          className="w-full appearance-none bg-surface border border-border rounded-lg px-4 py-2.5 text-sm text-text-primary pr-10 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+        >
+          <option value="">Select an event...</option>
+          {eventOptions.map((ev) => (
+            <option key={ev.id} value={ev.id}>{ev.title}</option>
+          ))}
+        </select>
+        <ChevronDown className="absolute right-3 top-3 h-4 w-4 text-text-tertiary pointer-events-none" />
+      </div>
+
+      {!selectedEventId && <EmptyState message="Select an event to view its detailed report" />}
+      {loading && <LoadingSpinner />}
+
+      {data && !loading && (
+        <>
+          {/* Event header */}
+          <div className="bg-surface rounded-xl border border-border p-5">
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-text-primary">{data.event.title}</h2>
+                <p className="text-sm text-text-secondary mt-1">
+                  {data.event.start_date ? formatDate(data.event.start_date) : '—'}
+                  {' — '}
+                  {data.event.end_date ? formatDate(data.event.end_date) : '—'}
+                  {data.event.venue_name && ` | ${data.event.venue_name}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <HealthBadge score={data.event.health_score} />
+                <StatusBadge type="event" value={data.event.status} />
+              </div>
+            </div>
+          </div>
+
+          {/* KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard
+              title="Task Completion"
+              value={`${data.task_completion.percentage}%`}
+              subtitle={`${data.task_completion.completed}/${data.task_completion.total} tasks`}
+              icon={CheckSquare}
+            />
+            <StatCard
+              title="Budget Variance"
+              value={formatCurrency(data.budget.variance)}
+              subtitle={`${formatCurrency(data.budget.actual)} of ${formatCurrency(data.budget.estimated)}`}
+              icon={DollarSign}
+            />
+            <StatCard
+              title="Hours Logged"
+              value={`${data.team_utilization.total_hours}h`}
+              subtitle={`${data.team_utilization.members.length} team members`}
+              icon={Clock}
+            />
+            <StatCard
+              title="NPS Score"
+              value={data.feedback.avg_nps ? data.feedback.avg_nps.toFixed(1) : 'N/A'}
+              subtitle={`${data.feedback.response_count} responses`}
+              icon={Star}
+            />
+          </div>
+
+          {/* Detail grids */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Attendee stats */}
+            <div className="bg-surface rounded-xl border border-border p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Users className="h-4 w-4 text-text-tertiary" />
+                <h3 className="text-sm font-semibold text-text-primary">Attendee Stats</h3>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-text-tertiary">Registered</p>
+                  <p className="text-xl font-semibold text-text-primary">{data.attendee_stats.registered}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-text-tertiary">Checked In</p>
+                  <p className="text-xl font-semibold text-green-600">{data.attendee_stats.checked_in}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-text-tertiary">Cancelled</p>
+                  <p className="text-xl font-semibold text-red-500">{data.attendee_stats.cancelled}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-text-tertiary">No Show</p>
+                  <p className="text-xl font-semibold text-amber-500">{data.attendee_stats.no_show}</p>
+                </div>
+              </div>
+              {data.attendee_stats.total > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-text-secondary">Check-in Rate</span>
+                    <span className="font-medium text-text-primary">
+                      {Math.round((data.attendee_stats.checked_in / data.attendee_stats.total) * 100)}%
+                    </span>
+                  </div>
+                  <ProgressBar value={data.attendee_stats.checked_in} max={data.attendee_stats.total} color="bg-green-500" />
+                </div>
+              )}
+            </div>
+
+            {/* Vendor status */}
+            <div className="bg-surface rounded-xl border border-border p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <BarChart3 className="h-4 w-4 text-text-tertiary" />
+                <h3 className="text-sm font-semibold text-text-primary">Vendor Status</h3>
+              </div>
+              {data.vendor_summary.length === 0 ? (
+                <EmptyState message="No vendors assigned" />
+              ) : (
+                <div className="space-y-3">
+                  {data.vendor_summary.map((v) => (
+                    <div key={v.status} className="flex items-center justify-between">
+                      <span className="text-sm text-text-secondary capitalize">{v.status.replace(/_/g, ' ')}</span>
+                      <span className="text-sm font-semibold text-text-primary">{v.count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Team utilization */}
+            <div className="bg-surface rounded-xl border border-border p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Activity className="h-4 w-4 text-text-tertiary" />
+                <h3 className="text-sm font-semibold text-text-primary">Team Hours</h3>
+              </div>
+              {data.team_utilization.members.length === 0 ? (
+                <EmptyState message="No hours logged yet" />
+              ) : (
+                <div className="space-y-3">
+                  {data.team_utilization.members.map((m) => {
+                    const maxHours = Math.max(...data.team_utilization.members.map((x) => x.hours), 1)
+                    return (
+                      <div key={m.user_id}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm text-text-primary">{m.name}</span>
+                          <span className="text-xs font-medium text-text-secondary">{m.hours}h</span>
+                        </div>
+                        <ProgressBar value={m.hours} max={maxHours} />
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Risks & Lessons */}
+            <div className="bg-surface rounded-xl border border-border p-5">
+              <h3 className="text-sm font-semibold text-text-primary mb-4">Risks & Lessons Learned</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="text-center p-4 rounded-lg bg-surface-secondary">
+                  <AlertTriangle className="h-5 w-5 text-amber-500 mx-auto mb-2" />
+                  <p className="text-2xl font-semibold text-text-primary">{data.risk_count}</p>
+                  <p className="text-xs text-text-tertiary">Risk Assessments</p>
+                </div>
+                <div className="text-center p-4 rounded-lg bg-surface-secondary">
+                  <CheckSquare className="h-5 w-5 text-green-500 mx-auto mb-2" />
+                  <p className="text-2xl font-semibold text-text-primary">{data.lessons_learned_count}</p>
+                  <p className="text-xs text-text-tertiary">Lessons Learned</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Utilization Tab ─────────────────────────────────────────
+
+function UtilizationTab() {
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [data, setData] = useState<UtilizationData | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  function fetchData() {
+    setLoading(true)
+    const params = new URLSearchParams()
+    if (dateFrom) params.set('date_from', dateFrom)
+    if (dateTo) params.set('date_to', dateTo)
+    fetch(`/api/reports/utilization?${params}`)
+      .then((r) => r.json())
+      .then((res) => setData(res.data))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    fetchData()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const maxHours = data ? Math.max(...data.users.map((u) => u.total_hours), 1) : 1
+
+  return (
+    <div className="space-y-6">
+      {/* Date range picker */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-xs font-medium text-text-secondary mb-1">From</label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-text-secondary mb-1">To</label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+          />
+        </div>
+        <button
+          onClick={fetchData}
+          className="bg-primary-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-600 transition-colors"
+        >
+          Apply
+        </button>
+      </div>
+
+      {loading && <LoadingSpinner />}
+
+      {data && !loading && (
+        <>
+          {/* Over-allocated warning */}
+          {data.over_allocated.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <h3 className="text-sm font-semibold text-amber-800">
+                  Over-Allocated Users ({'>'}40h/week)
+                </h3>
+              </div>
+              <div className="space-y-1">
+                {data.over_allocated.map((u) => (
+                  <p key={u.user_id} className="text-sm text-amber-700">
+                    {u.name} — {u.avg_weekly_hours}h/week avg ({u.total_hours}h total)
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* User utilization table */}
+          <div className="bg-surface rounded-xl border border-border">
+            <div className="px-5 py-4 border-b border-border">
+              <h3 className="text-sm font-semibold text-text-primary">User Utilization</h3>
+              {data.date_range.from && data.date_range.to && (
+                <p className="text-xs text-text-tertiary mt-0.5">
+                  {formatDate(data.date_range.from)} — {formatDate(data.date_range.to)} ({data.date_range.weeks} weeks)
+                </p>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left px-5 py-3 text-xs font-medium text-text-tertiary uppercase">User</th>
+                    <th className="text-right px-3 py-3 text-xs font-medium text-text-tertiary uppercase">Total Hours</th>
+                    <th className="text-right px-3 py-3 text-xs font-medium text-text-tertiary uppercase">Billable</th>
+                    <th className="text-right px-3 py-3 text-xs font-medium text-text-tertiary uppercase">Avg/Week</th>
+                    <th className="text-right px-3 py-3 text-xs font-medium text-text-tertiary uppercase">Entries</th>
+                    <th className="px-5 py-3 text-xs font-medium text-text-tertiary uppercase w-40">Load</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.users.map((u) => {
+                    const isOver = u.avg_weekly_hours > 40
+                    return (
+                      <tr key={u.user_id} className={`border-b border-border/50 ${isOver ? 'bg-amber-50/50' : 'hover:bg-surface-secondary'} transition-colors`}>
+                        <td className="px-5 py-3 font-medium text-text-primary">{u.name}</td>
+                        <td className="px-3 py-3 text-right text-text-secondary">{u.total_hours}h</td>
+                        <td className="px-3 py-3 text-right text-text-secondary">{u.billable_hours}h</td>
+                        <td className={`px-3 py-3 text-right font-medium ${isOver ? 'text-amber-600' : 'text-text-primary'}`}>
+                          {u.avg_weekly_hours}h
+                        </td>
+                        <td className="px-3 py-3 text-right text-text-secondary">{u.entry_count}</td>
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <ProgressBar
+                                value={u.total_hours}
+                                max={maxHours}
+                                color={isOver ? 'bg-amber-500' : 'bg-primary-500'}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {data.users.length === 0 && (
+                    <tr><td colSpan={6}><EmptyState message="No timesheet data for this period" /></td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* By-event allocation */}
+          {data.by_event.length > 0 && (
+            <div className="bg-surface rounded-xl border border-border">
+              <div className="px-5 py-4 border-b border-border">
+                <h3 className="text-sm font-semibold text-text-primary">Hours by Event</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left px-5 py-3 text-xs font-medium text-text-tertiary uppercase">User</th>
+                      <th className="text-left px-3 py-3 text-xs font-medium text-text-tertiary uppercase">Event</th>
+                      <th className="text-right px-5 py-3 text-xs font-medium text-text-tertiary uppercase">Hours</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.by_event.map((row, i) => (
+                      <tr key={i} className="border-b border-border/50 hover:bg-surface-secondary transition-colors">
+                        <td className="px-5 py-3 text-text-primary">{row.name}</td>
+                        <td className="px-3 py-3 text-text-secondary">{row.event_title}</td>
+                        <td className="px-5 py-3 text-right font-medium text-text-primary">{row.hours}h</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   )
 }

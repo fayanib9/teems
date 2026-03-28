@@ -29,6 +29,16 @@ const MONTH_NAMES = [
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+const STATUS_COLORS: Record<string, string> = {
+  draft: '#9CA3AF',
+  planning: '#3B82F6',
+  confirmed: '#10B981',
+  in_progress: '#312C6A',
+  completed: '#059669',
+  cancelled: '#EF4444',
+  postponed: '#F97316',
+}
+
 export function CalendarClient({ events, year, month }: Props) {
   const router = useRouter()
 
@@ -45,13 +55,12 @@ export function CalendarClient({ events, year, month }: Props) {
     router.push(`/calendar?year=${now.getFullYear()}&month=${now.getMonth() + 1}`)
   }
 
-  // Build calendar grid
+  // Build calendar grid — week starts on Sunday
   const firstDay = new Date(year, month - 1, 1)
   const lastDay = new Date(year, month, 0)
-  const startOffset = firstDay.getDay()
+  const startOffset = firstDay.getDay() // 0=Sun already
   const totalDays = lastDay.getDate()
   const today = new Date()
-  const isCurrentMonth = today.getFullYear() === year && today.getMonth() + 1 === month
 
   const days: { date: Date; isCurrentMonth: boolean }[] = []
 
@@ -86,6 +95,16 @@ export function CalendarClient({ events, year, month }: Props) {
     return date.toISOString().split('T')[0] === today.toISOString().split('T')[0]
   }
 
+  function getEventColor(event: CalEvent): string {
+    return STATUS_COLORS[event.status] || '#312C6A'
+  }
+
+  // Check if a day is Friday (5) or Saturday (6) — Saudi weekends
+  function isWeekend(date: Date): boolean {
+    const day = date.getDay()
+    return day === 5 || day === 6
+  }
+
   return (
     <>
       <PageHeader
@@ -97,6 +116,16 @@ export function CalendarClient({ events, year, month }: Props) {
           </a>
         }
       />
+
+      {/* Status Legend */}
+      <div className="flex flex-wrap items-center gap-4 mb-4">
+        {Object.entries(STATUS_COLORS).slice(0, 5).map(([status, color]) => (
+          <div key={status} className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
+            <span className="text-xs text-text-secondary capitalize">{status.replace(/_/g, ' ')}</span>
+          </div>
+        ))}
+      </div>
 
       <div className="bg-surface rounded-xl border border-border overflow-hidden">
         {/* Month Navigation */}
@@ -117,8 +146,13 @@ export function CalendarClient({ events, year, month }: Props) {
 
         {/* Day Headers */}
         <div className="grid grid-cols-7 border-b border-border">
-          {DAY_NAMES.map(day => (
-            <div key={day} className="px-2 py-2 text-center text-xs font-medium text-text-tertiary uppercase">
+          {DAY_NAMES.map((day, i) => (
+            <div
+              key={day}
+              className={`px-2 py-2 text-center text-xs font-medium uppercase tracking-wider ${
+                i === 5 || i === 6 ? 'text-text-tertiary bg-gray-50' : 'text-text-tertiary'
+              }`}
+            >
               {day}
             </div>
           ))}
@@ -129,12 +163,13 @@ export function CalendarClient({ events, year, month }: Props) {
           {days.map((day, i) => {
             const dayEvents = getEventsForDate(day.date)
             const todayClass = isToday(day.date)
+            const weekend = isWeekend(day.date)
 
             return (
               <div
                 key={i}
                 className={`min-h-[80px] sm:min-h-[100px] border-b border-r border-border p-1.5 ${
-                  !day.isCurrentMonth ? 'bg-gray-50' : ''
+                  !day.isCurrentMonth ? 'bg-gray-50/80' : weekend ? 'bg-gray-50/50' : ''
                 }`}
               >
                 <div className={`text-xs font-medium mb-1 ${
@@ -149,17 +184,18 @@ export function CalendarClient({ events, year, month }: Props) {
                     <Link
                       key={e.id}
                       href={`/events/${e.id}`}
-                      className="block text-xs px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity"
+                      className="block text-[11px] px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity font-medium"
                       style={{
-                        backgroundColor: `${e.event_type_color || '#312C6A'}20`,
-                        color: e.event_type_color || '#312C6A',
+                        backgroundColor: `${getEventColor(e)}18`,
+                        color: getEventColor(e),
+                        borderLeft: `3px solid ${getEventColor(e)}`,
                       }}
                     >
                       {e.title}
                     </Link>
                   ))}
                   {dayEvents.length > 3 && (
-                    <p className="text-xs text-text-tertiary px-1">+{dayEvents.length - 3} more</p>
+                    <p className="text-[11px] text-text-tertiary px-1 font-medium">+{dayEvents.length - 3} more</p>
                   )}
                 </div>
               </div>

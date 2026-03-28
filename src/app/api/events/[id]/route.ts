@@ -5,6 +5,29 @@ import { events, event_types, clients, users, tasks, event_vendors, event_speake
 import { eq, and, count, sql } from 'drizzle-orm'
 import { slugify } from '@/lib/utils'
 import { logActivity } from '@/lib/activity'
+import { notifyEventStatusChange, getEventMemberIds } from '@/lib/notify'
+import { z } from 'zod'
+
+const updateEventSchema = z.object({
+  title: z.string().min(1).max(300).optional(),
+  description: z.string().optional().nullable(),
+  event_type_id: z.number().int().positive().optional().nullable(),
+  client_id: z.number().int().positive().optional().nullable(),
+  status: z.string().optional(),
+  priority: z.string().optional(),
+  start_date: z.string().optional(),
+  end_date: z.string().optional(),
+  venue_name: z.string().optional().nullable(),
+  venue_address: z.string().optional().nullable(),
+  venue_city: z.string().optional().nullable(),
+  venue_country: z.string().optional().nullable(),
+  expected_attendees: z.number().int().positive().optional().nullable(),
+  actual_attendees: z.number().int().min(0).optional().nullable(),
+  budget_estimated: z.number().int().min(0).optional().nullable(),
+  budget_actual: z.number().int().min(0).optional().nullable(),
+  notes: z.string().optional().nullable(),
+  cover_image_path: z.string().optional().nullable(),
+}).partial()
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -102,21 +125,28 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (isNaN(numId)) {
       return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
     }
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = updateEventSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues[0].message, details: parsed.error.issues }, { status: 400 })
+    }
+    const body = parsed.data
 
     if (body.start_date && body.end_date && new Date(body.end_date) < new Date(body.start_date)) {
       return NextResponse.json({ error: 'End date must be after start date' }, { status: 400 })
     }
-    if (body.budget_estimated !== undefined && body.budget_estimated < 0) {
+    if (body.budget_estimated !== undefined && body.budget_estimated !== null && body.budget_estimated < 0) {
       return NextResponse.json({ error: 'Budget cannot be negative' }, { status: 400 })
     }
 
     // Status transition validation
     const VALID_TRANSITIONS: Record<string, string[]> = {
       draft: ['planning'],
-      planning: ['in_progress', 'cancelled'],
+      planning: ['confirmed', 'cancelled'],
+      confirmed: ['in_progress', 'postponed', 'cancelled'],
       in_progress: ['completed', 'on_hold', 'cancelled'],
       on_hold: ['in_progress', 'cancelled'],
+      postponed: ['planning', 'cancelled'],
       completed: ['archived'],
       cancelled: [],
       archived: [],
@@ -144,12 +174,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       'notes', 'cover_image_path',
     ]
 
+    const bodyRecord = body as Record<string, unknown>
     for (const field of allowedFields) {
       if (field in body) {
-        if (field === 'start_date' || field === 'end_date') {
-          updateData[field] = new Date(body[field])
+        if ((field === 'start_date' || field === 'end_date') && typeof bodyRecord[field] === 'string') {
+          updateData[field] = new Date(bodyRecord[field] as string)
         } else {
-          updateData[field] = body[field]
+          updateData[field] = bodyRecord[field]
         }
       }
     }
@@ -176,6 +207,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     logActivity({ userId: session.id, action: 'updated', resource: 'event', resourceId: numId, eventId: numId, details: JSON.stringify({ changes: Object.keys(body) }) }).catch(() => {})
 
+    // Notify event team members on status change
+    if (body.status) {
+      getEventMemberIds(numId).then(memberIds => {
+        const otherMembers = memberIds.filter(id => id !== session.id)
+        if (otherMembers.length > 0) {
+          notifyEventStatusChange(otherMembers, updated.title, numId, body.status!).catch(() => {})
+        }
+      }).catch(() => {})
+    }
+
     return NextResponse.json({ data: updated })
   } catch (error) {
     console.error('API error:', error)
@@ -197,12 +238,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
     }
 
-    const [deleted] = await db
-      .delete(events)
+    // Soft-delete: archive the event instead of hard deleting
+    const [archived] = await db
+      .update(events)
+      .set({ status: 'archived', updated_by: session.id, updated_at: new Date() })
       .where(eq(events.id, numId))
       .returning({ id: events.id })
 
-    if (!deleted) {
+    if (!archived) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 })
     }
 

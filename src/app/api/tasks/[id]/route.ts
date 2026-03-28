@@ -126,7 +126,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     if (isNaN(numId)) {
       return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
     }
-    const [deleted] = await db.delete(tasks).where(eq(tasks.id, numId)).returning({ id: tasks.id, event_id: tasks.event_id })
+    // Soft-delete: mark task as cancelled instead of hard deleting
+    const [deleted] = await db.update(tasks).set({ status: 'cancelled', updated_at: new Date() }).where(eq(tasks.id, numId)).returning({ id: tasks.id, event_id: tasks.event_id })
     if (!deleted) return NextResponse.json({ error: 'Task not found' }, { status: 404 })
 
     logActivity({ userId: session.id, action: 'deleted', resource: 'task', resourceId: numId, eventId: deleted.event_id }).catch(() => {})

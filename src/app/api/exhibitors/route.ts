@@ -3,6 +3,17 @@ import { getSession, hasPermission } from '@/lib/auth'
 import { db } from '@/db'
 import { exhibitors, event_exhibitors } from '@/db/schema'
 import { eq, desc, count, sql } from 'drizzle-orm'
+import { z } from 'zod'
+
+const createExhibitorSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(200),
+  contact_name: z.string().optional().nullable(),
+  email: z.string().email().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  website: z.string().optional().nullable(),
+  industry: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+})
 
 export async function GET(req: NextRequest) {
   try {
@@ -34,16 +45,20 @@ export async function POST(req: NextRequest) {
     if (!hasPermission(session, 'exhibitors', 'create')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     const body = await req.json()
-    if (!body.name) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+    const parsed = createExhibitorSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues[0].message, details: parsed.error.issues }, { status: 400 })
+    }
+    const data = parsed.data
 
     const [exhibitor] = await db.insert(exhibitors).values({
-      name: body.name,
-      contact_name: body.contact_name || null,
-      email: body.email || null,
-      phone: body.phone || null,
-      website: body.website || null,
-      industry: body.industry || null,
-      notes: body.notes || null,
+      name: data.name,
+      contact_name: data.contact_name || null,
+      email: data.email || null,
+      phone: data.phone || null,
+      website: data.website || null,
+      industry: data.industry || null,
+      notes: data.notes || null,
     }).returning()
 
     return NextResponse.json({ data: exhibitor }, { status: 201 })

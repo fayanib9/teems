@@ -30,6 +30,22 @@
   --radius-xl: 1rem;
 }
 
+/* Dark mode theme overrides */
+.dark {
+  --color-surface: #111827;
+  --color-surface-secondary: #1f2937;
+  --color-surface-tertiary: #374151;
+  --color-border: #374151;
+  --color-border-light: #1f2937;
+  --color-text-primary: #f9fafb;
+  --color-text-secondary: #d1d5db;
+  --color-text-tertiary: #6b7280;
+
+  --color-primary-50: #1e1b4b;
+  --color-primary-100: #2e2a5e;
+  --color-primary-200: #3b3578;
+}
+
 @layer base {
   body {
     @apply bg-surface text-text-primary font-sans antialiased;
@@ -48,6 +64,9 @@
   background: #d1d5db;
   border-radius: 3px;
 }
+.dark ::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
 ::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
 }
@@ -57,4 +76,74 @@
   outline: 2px solid var(--color-primary-500);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* Skeleton shimmer animation */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, var(--color-surface-tertiary) 25%, var(--color-border) 50%, var(--color-surface-tertiary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Micro-animations */
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Slide-in animation for toasts */
+@keyframes slide-in-from-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.animate-in.slide-in-from-right {
+  animation: slide-in-from-right 0.2s ease-out;
+}
+
+/* RTL support */
+[dir="rtl"] {
+  text-align: right;
+}
+[dir="rtl"] .ltr-only {
+  direction: ltr;
+}
+
+/* Skip to content link for accessibility */
+.skip-to-content {
+  position: absolute;
+  left: -10000px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  z-index: 100;
+}
+.skip-to-content:focus {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  width: auto;
+  height: auto;
+  padding: 8px 16px;
+  background: var(--color-primary-500);
+  color: white;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 100;
+}
+
+/* Accessible focus trap backdrop */
+.focus-trap-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+/* Print styles */
+@media print {
+  .no-print { display: none !important; }
 }

@@ -2,8 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Menu, Bell, LogOut, User, ChevronRight, Check } from 'lucide-react'
+import { Menu, Bell, LogOut, User, ChevronRight, Check, Settings, Activity, Moon, Sun, Monitor, Globe } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { SearchBar } from './search-bar'
+import { useTheme } from '@/components/providers/theme-provider'
+import { useLocale } from '@/hooks/use-locale'
 import type { SessionUser } from '@/lib/auth'
 import type { BreadcrumbItem } from '@/types'
 
@@ -25,6 +28,8 @@ type Notification = {
 
 export function Header({ user, onMenuClick, breadcrumbs }: HeaderProps) {
   const router = useRouter()
+  const { theme, setTheme } = useTheme()
+  const { locale, setLocale } = useLocale()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showNotifs, setShowNotifs] = useState(false)
   const [notifs, setNotifs] = useState<Notification[]>([])
@@ -42,9 +47,21 @@ export function Header({ user, onMenuClick, breadcrumbs }: HeaderProps) {
 
   useEffect(() => {
     fetchNotifs()
-    const interval = setInterval(fetchNotifs, 30000) // Poll every 30s
+    const interval = setInterval(fetchNotifs, 30000)
     return () => clearInterval(interval)
   }, [fetchNotifs])
+
+  async function markAsRead(notifId: number) {
+    try {
+      await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notification_id: notifId }),
+      })
+      setNotifs(prev => prev.map(n => n.id === notifId ? { ...n, is_read: true } : n))
+      setUnreadCount(prev => Math.max(0, prev - 1))
+    } catch { /* silent */ }
+  }
 
   async function markAllRead() {
     try {
@@ -63,24 +80,37 @@ export function Header({ user, onMenuClick, breadcrumbs }: HeaderProps) {
     router.push('/login')
   }
 
+  function handleNotifClick(n: Notification) {
+    if (!n.is_read) markAsRead(n.id)
+    if (n.link) { router.push(n.link); setShowNotifs(false) }
+  }
+
+  const themeIcon = theme === 'dark' ? Moon : theme === 'system' ? Monitor : Sun
+  const ThemeIcon = themeIcon
+  const nextTheme = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light'
+
   return (
     <header className="sticky top-0 z-30 h-14 bg-surface/80 backdrop-blur-sm border-b border-border-light flex items-center justify-between px-4 lg:px-6">
       <div className="flex items-center gap-3">
-        <button onClick={onMenuClick} className="lg:hidden text-text-secondary hover:text-text-primary">
+        <button
+          onClick={onMenuClick}
+          className="lg:hidden text-text-secondary hover:text-text-primary"
+          aria-label="Toggle navigation menu"
+        >
           <Menu className="h-5 w-5" />
         </button>
 
         {breadcrumbs && breadcrumbs.length > 0 && (
-          <nav className="hidden sm:flex items-center gap-1 text-sm">
+          <nav aria-label="Breadcrumb" className="hidden sm:flex items-center gap-1 text-sm">
             {breadcrumbs.map((crumb, i) => (
               <span key={i} className="flex items-center gap-1">
-                {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-text-tertiary" />}
+                {i > 0 && <ChevronRight className="h-3.5 w-3.5 text-text-tertiary" aria-hidden="true" />}
                 {crumb.href ? (
                   <a href={crumb.href} className="text-text-secondary hover:text-text-primary">
                     {crumb.label}
                   </a>
                 ) : (
-                  <span className="text-text-primary font-medium">{crumb.label}</span>
+                  <span className="text-text-primary font-medium" aria-current="page">{crumb.label}</span>
                 )}
               </span>
             ))}
@@ -89,15 +119,53 @@ export function Header({ user, onMenuClick, breadcrumbs }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Global Search */}
+        <div data-tour="search">
+          <SearchBar />
+        </div>
+
+        {/* Command palette hint */}
+        <button
+          onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
+          className="hidden md:flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border text-text-tertiary hover:text-text-secondary hover:bg-surface-secondary transition-colors text-xs"
+          aria-label="Open command palette"
+        >
+          <kbd className="text-[10px] font-medium">&#x2318;K</kbd>
+        </button>
+
+        {/* Theme toggle */}
+        <button
+          data-tour="theme-toggle"
+          onClick={() => setTheme(nextTheme)}
+          className="h-9 w-9 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-tertiary transition-colors"
+          aria-label={`Switch to ${nextTheme} mode`}
+          title={`Current: ${theme} mode`}
+        >
+          <ThemeIcon className="h-4.5 w-4.5" />
+        </button>
+
+        {/* Language toggle */}
+        <button
+          onClick={() => setLocale(locale === 'en' ? 'ar' : 'en')}
+          className="h-9 flex items-center gap-1.5 px-2 rounded-lg text-text-secondary hover:bg-surface-tertiary transition-colors"
+          aria-label={locale === 'en' ? 'Switch to Arabic' : 'Switch to English'}
+          title={locale === 'en' ? 'Switch to Arabic' : 'Switch to English'}
+        >
+          <Globe className="h-4 w-4" />
+          <span className="text-xs font-medium">{locale === 'en' ? 'EN' : 'عر'}</span>
+        </button>
+
         {/* Notifications */}
         <div className="relative">
           <button
-            onClick={() => setShowNotifs(!showNotifs)}
+            data-tour="notifications"
+            onClick={() => { setShowNotifs(!showNotifs); setShowUserMenu(false) }}
             className="relative h-9 w-9 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-tertiary transition-colors"
+            aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
           >
             <Bell className="h-4.5 w-4.5" />
             {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold">
+              <span className="absolute top-1 right-1 h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold" aria-hidden="true">
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
@@ -106,7 +174,7 @@ export function Header({ user, onMenuClick, breadcrumbs }: HeaderProps) {
           {showNotifs && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowNotifs(false)} />
-              <div className="absolute right-0 top-full mt-1 w-80 bg-surface rounded-xl shadow-lg border border-border z-50 overflow-hidden">
+              <div className="absolute right-0 top-full mt-1 w-[calc(100vw-2rem)] sm:w-80 max-w-80 bg-surface rounded-xl shadow-lg border border-border z-50 overflow-hidden" role="menu">
                 <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
                   <h3 className="text-sm font-semibold text-text-primary">Notifications</h3>
                   {unreadCount > 0 && (
@@ -122,9 +190,10 @@ export function Header({ user, onMenuClick, breadcrumbs }: HeaderProps) {
                     notifs.map(n => (
                       <div
                         key={n.id}
-                        onClick={() => {
-                          if (n.link) { router.push(n.link); setShowNotifs(false) }
-                        }}
+                        onClick={() => handleNotifClick(n)}
+                        role={n.link ? 'link' : undefined}
+                        tabIndex={n.link ? 0 : undefined}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && n.link) handleNotifClick(n) }}
                         className={cn(
                           'px-4 py-3 border-b border-border-light last:border-0 hover:bg-surface-secondary transition-colors',
                           n.link && 'cursor-pointer',
@@ -150,10 +219,12 @@ export function Header({ user, onMenuClick, breadcrumbs }: HeaderProps) {
         {/* User menu */}
         <div className="relative">
           <button
-            onClick={() => setShowUserMenu(!showUserMenu)}
+            onClick={() => { setShowUserMenu(!showUserMenu); setShowNotifs(false) }}
             className="flex items-center gap-2 h-9 pl-2 pr-3 rounded-lg hover:bg-surface-tertiary transition-colors"
+            aria-label="User menu"
+            aria-expanded={showUserMenu}
           >
-            <div className="h-7 w-7 rounded-full bg-primary-100 text-primary-700 font-medium text-xs flex items-center justify-center">
+            <div className="h-7 w-7 rounded-full bg-primary-100 text-primary-700 font-medium text-xs flex items-center justify-center" aria-hidden="true">
               {user.first_name.charAt(0)}{user.last_name.charAt(0)}
             </div>
             <span className="hidden md:block text-sm text-text-primary">
@@ -164,18 +235,40 @@ export function Header({ user, onMenuClick, breadcrumbs }: HeaderProps) {
           {showUserMenu && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-              <div className="absolute right-0 top-full mt-1 w-48 bg-surface rounded-lg shadow-lg border border-border py-1 z-50">
+              <div className="absolute right-0 top-full mt-1 w-52 bg-surface rounded-lg shadow-lg border border-border py-1 z-50" role="menu">
+                <div className="px-3 py-2 border-b border-border-light">
+                  <p className="text-sm font-medium text-text-primary">{user.first_name} {user.last_name}</p>
+                  <p className="text-xs text-text-tertiary">{user.email}</p>
+                </div>
                 <button
                   onClick={() => { setShowUserMenu(false) }}
                   className="flex items-center gap-2 w-full px-3 py-2 text-sm text-text-secondary hover:bg-surface-tertiary"
+                  role="menuitem"
                 >
                   <User className="h-4 w-4" />
-                  Profile
+                  My Profile
+                </button>
+                <button
+                  onClick={() => { router.push('/settings'); setShowUserMenu(false) }}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-text-secondary hover:bg-surface-tertiary"
+                  role="menuitem"
+                >
+                  <Settings className="h-4 w-4" />
+                  Settings
+                </button>
+                <button
+                  onClick={() => { router.push('/activity'); setShowUserMenu(false) }}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-text-secondary hover:bg-surface-tertiary"
+                  role="menuitem"
+                >
+                  <Activity className="h-4 w-4" />
+                  Activity Log
                 </button>
                 <hr className="my-1 border-border-light" />
                 <button
                   onClick={handleLogout}
-                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+                  role="menuitem"
                 >
                   <LogOut className="h-4 w-4" />
                   Sign out

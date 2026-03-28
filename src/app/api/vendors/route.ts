@@ -3,6 +3,19 @@ import { getSession, hasPermission } from '@/lib/auth'
 import { db } from '@/db'
 import { vendors, event_vendors } from '@/db/schema'
 import { eq, ilike, or, desc, count, sql } from 'drizzle-orm'
+import { z } from 'zod'
+
+const createVendorSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(200),
+  category: z.string().optional().nullable(),
+  contact_name: z.string().optional().nullable(),
+  email: z.string().email().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  website: z.string().optional().nullable(),
+  tax_number: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+})
 
 export async function GET(req: NextRequest) {
   try {
@@ -40,18 +53,22 @@ export async function POST(req: NextRequest) {
     if (!hasPermission(session, 'vendors', 'create')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     const body = await req.json()
-    if (!body.name) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+    const parsed = createVendorSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues[0].message, details: parsed.error.issues }, { status: 400 })
+    }
+    const data = parsed.data
 
     const [vendor] = await db.insert(vendors).values({
-      name: body.name,
-      category: body.category || null,
-      contact_name: body.contact_name || null,
-      email: body.email || null,
-      phone: body.phone || null,
-      address: body.address || null,
-      website: body.website || null,
-      tax_number: body.tax_number || null,
-      notes: body.notes || null,
+      name: data.name,
+      category: data.category || null,
+      contact_name: data.contact_name || null,
+      email: data.email || null,
+      phone: data.phone || null,
+      address: data.address || null,
+      website: data.website || null,
+      tax_number: data.tax_number || null,
+      notes: data.notes || null,
     }).returning()
 
     return NextResponse.json({ data: vendor }, { status: 201 })

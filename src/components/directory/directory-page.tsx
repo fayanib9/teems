@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Modal } from '@/components/ui/modal'
 import { EmptyState } from '@/components/ui/empty-state'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useToast } from '@/components/ui/toast'
 import { Plus, Search, Edit, Trash2, Mail, Phone, Globe, CalendarDays, Truck, Mic, Presentation, Building2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -45,6 +46,7 @@ type Props = {
   canCreate: boolean
   canEdit: boolean
   canDelete: boolean
+  emptyDescription?: string
 }
 
 const CARD_STYLES: Record<CardFieldDef['style'], string> = {
@@ -63,7 +65,7 @@ function renderCardField(item: DirectoryItem, cf: CardFieldDef) {
   return <Tag key={cf.key} className={CARD_STYLES[cf.style]}>{text}</Tag>
 }
 
-export function DirectoryPage({ title, iconName, items, apiPath, fields, cardFields, canCreate, canEdit, canDelete }: Props) {
+export function DirectoryPage({ title, iconName, items, apiPath, fields, cardFields, canCreate, canEdit, canDelete, emptyDescription }: Props) {
   const Icon = ICON_MAP[iconName] || Building2
   const router = useRouter()
   const { toast } = useToast()
@@ -154,13 +156,13 @@ export function DirectoryPage({ title, iconName, items, apiPath, fields, cardFie
         <EmptyState
           icon={Icon}
           title={`No ${title.toLowerCase()} found`}
-          description={search ? 'Try adjusting your search' : `Add your first ${title.slice(0, -1).toLowerCase()}`}
+          description={search ? 'Try adjusting your search' : (emptyDescription || `Add your first ${title.slice(0, -1).toLowerCase()}`)}
           action={canCreate ? { label: `Add ${title.slice(0, -1)}`, onClick: openCreate } : undefined}
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(item => (
-            <div key={item.id} className="bg-surface rounded-xl border border-border p-5 hover:border-primary-200 transition-colors">
+            <div key={item.id} className="bg-surface rounded-xl border border-border p-5 hover:border-primary-200 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-1 min-w-0">
                   {cardFields.map(cf => renderCardField(item, cf))}
@@ -245,14 +247,16 @@ export function DirectoryPage({ title, iconName, items, apiPath, fields, cardFie
         </form>
       </Modal>
 
-      {/* Delete Modal */}
-      <Modal open={!!deleteId} onClose={() => setDeleteId(null)} title="Confirm Removal" size="sm">
-        <p className="text-sm text-text-secondary mb-4">Are you sure? This item will be deactivated.</p>
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
-          <Button variant="danger" onClick={handleDelete}>Remove</Button>
-        </div>
-      </Modal>
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        open={!!deleteId}
+        title={`Remove this ${title.slice(0, -1).toLowerCase()}?`}
+        message="Are you sure? This item will be deactivated."
+        confirmLabel="Remove"
+        variant="danger"
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteId(null)}
+      />
     </>
   )
 }

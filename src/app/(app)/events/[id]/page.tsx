@@ -53,7 +53,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
 
   if (!event) notFound()
 
-  // Get all counts in a single query
+  // Get all counts in a single query (including setup checklist counts)
   const countsResult = await db.execute(sql`
     SELECT
       (SELECT COUNT(*) FROM tasks WHERE event_id = ${eventId}) as task_count,
@@ -62,7 +62,13 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
       (SELECT COUNT(*) FROM event_speakers WHERE event_id = ${eventId}) as speaker_count,
       (SELECT COUNT(*) FROM event_exhibitors WHERE event_id = ${eventId}) as exhibitor_count,
       (SELECT COUNT(*) FROM documents WHERE event_id = ${eventId}) as document_count,
-      (SELECT COUNT(*) FROM milestones WHERE event_id = ${eventId}) as milestone_count
+      (SELECT COUNT(*) FROM milestones WHERE event_id = ${eventId}) as milestone_count,
+      (SELECT COUNT(*) FROM event_assignments WHERE event_id = ${eventId}) as assignment_count,
+      (SELECT COUNT(*) FROM budget_calculations WHERE event_id = ${eventId}) as budget_calc_count,
+      (SELECT COUNT(*) FROM generated_plans WHERE event_id = ${eventId}) as plan_count,
+      (SELECT COUNT(*) FROM risk_assessments WHERE event_id = ${eventId}) as risk_count,
+      (SELECT COUNT(*) FROM change_requests WHERE event_id = ${eventId}) as change_count,
+      (SELECT COUNT(*) FROM lessons_learned WHERE event_id = ${eventId}) as lesson_count
   `)
   const counts = countsResult.rows[0] as Record<string, string>
 
@@ -111,6 +117,12 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
         exhibitors: Number(counts.exhibitor_count),
         documents: Number(counts.document_count),
         milestones: Number(counts.milestone_count),
+        assignments: Number(counts.assignment_count),
+        budgetCalcs: Number(counts.budget_calc_count),
+        plans: Number(counts.plan_count),
+        risks: Number(counts.risk_count),
+        changes: Number(counts.change_count),
+        lessons: Number(counts.lesson_count),
       }}
       recentTasks={recentTasks}
       teamMembers={teamMembers}

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession, hasPermission } from '@/lib/auth'
-import { hashSync } from 'bcryptjs'
 import { db } from '@/db'
 import { users, roles, clients, vendors, speakers, exhibitors } from '@/db/schema'
 import { eq } from 'drizzle-orm'
@@ -50,7 +49,7 @@ export async function POST(req: NextRequest) {
     const existing = await db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.email, email))
+      .where(eq(users.email, email.toLowerCase()))
       .limit(1)
 
     if (existing[0]) {
@@ -68,21 +67,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Role "${role_name}" not found` }, { status: 404 })
     }
 
-    // Generate temporary password
-    const tempPassword = crypto.randomBytes(16).toString('base64url')
-    const passwordHash = hashSync(tempPassword, 12)
+    // Generate invite token
+    const inviteToken = crypto.randomBytes(32).toString('base64url')
 
-    // Create user
+    // Create pending user with invite token as temporary password hash marker
+    // The user will set their password when they accept the invite
     const [newUser] = await db
       .insert(users)
       .values({
-        email,
+        email: email.toLowerCase(),
         first_name,
         last_name,
-        password_hash: passwordHash,
+        password_hash: `invite:${inviteToken}`,
         role_id: roleRecord[0].id,
         user_type: 'external',
-        is_active: true,
+        is_active: false, // Inactive until invite is accepted
       })
       .returning({
         id: users.id,
@@ -101,9 +100,12 @@ export async function POST(req: NextRequest) {
       .set({ user_id: newUser.id })
       .where(eq(entityTable.id, entity_id))
 
+    const inviteLink = `/invite/${inviteToken}`
+
     return NextResponse.json({
       data: newUser,
-      temp_password: tempPassword,
+      invite_token: inviteToken,
+      invite_link: inviteLink,
     }, { status: 201 })
   } catch (error) {
     console.error('API error:', error)

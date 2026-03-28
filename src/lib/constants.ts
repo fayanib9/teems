@@ -95,3 +95,49 @@ export const PACKAGE_TYPES = [
   { value: 'platinum', label: 'Platinum' },
   { value: 'custom', label: 'Custom' },
 ] as const
+
+// ─── Tools Constants ──────────────────────────────────────────────
+
+export const EVENT_CATEGORIES = ['conference', 'exhibition', 'gala', 'corporate', 'activation']
+
+export const SERVICES = [
+  { key: 'production', label: 'Production', icon: 'Film', description: 'AV, staging, lighting, and sound' },
+  { key: 'content', label: 'Content', icon: 'FileText', description: 'Content creation, presentations, and media' },
+  { key: 'registration', label: 'Registration', icon: 'UserCheck', description: 'Registration platform and check-in' },
+  { key: 'catering', label: 'Catering', icon: 'UtensilsCrossed', description: 'Food, beverages, and dining' },
+  { key: 'branding', label: 'Branding', icon: 'Palette', description: 'Visual identity, signage, and print' },
+  { key: 'logistics', label: 'Logistics', icon: 'Truck', description: 'Transport, shipping, and setup' },
+  { key: 'staffing', label: 'Staffing', icon: 'Users', description: 'Event staff, ushers, and support' },
+  { key: 'marketing', label: 'Marketing', icon: 'Megaphone', description: 'Promotion, PR, and campaigns' },
+]
+
+export const BUDGET_RANGES = [
+  { key: 'under_500k', label: 'Under 500K SAR', min: 0, max: 50000000 },
+  { key: '500k_2m', label: '500K – 2M SAR', min: 50000000, max: 200000000 },
+  { key: '2m_10m', label: '2M – 10M SAR', min: 200000000, max: 1000000000 },
+  { key: 'over_10m', label: '10M+ SAR', min: 1000000000, max: null },
+]
+
+export const AUDIENCE_TYPES = ['vip', 'public', 'internal', 'mixed']
+
+export const VENUE_TYPES = ['indoor', 'outdoor', 'hybrid']
+
+export const URGENCY_LEVELS = [
+  { key: 'normal', label: 'Normal', color: '#059669', description: 'Standard timeline' },
+  { key: 'fast_track', label: 'Fast Track', color: '#D97706', description: '30% compressed timeline' },
+  { key: 'critical', label: 'Critical', color: '#DC2626', description: '50% compressed, high risk' },
+]
+
+export const RISK_LEVELS = ['low', 'medium', 'high', 'critical']
+
+export const PLAN_STATUSES = ['generated', 'active', 'completed', 'archived']
+
+export const PLAN_TASK_STATUSES = ['pending', 'in_progress', 'completed', 'skipped']
+
+export const PLAN_PHASES = [
+  { name: 'Strategy', color: '#312C6A', icon: 'Target' },
+  { name: 'Planning', color: '#2563EB', icon: 'ClipboardList' },
+  { name: 'Procurement', color: '#059669', icon: 'ShoppingCart' },
+  { name: 'Execution', color: '#D97706', icon: 'Rocket' },
+  { name: 'Closure', color: '#6B7280', icon: 'CheckCircle' },
+]

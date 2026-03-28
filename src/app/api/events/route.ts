@@ -2,8 +2,27 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession, hasPermission } from '@/lib/auth'
 import { db } from '@/db'
 import { events, event_types, clients, users } from '@/db/schema'
-import { eq, and, ilike, sql, desc, asc, count, or } from 'drizzle-orm'
+import { eq, and, ilike, sql, desc, asc, count, or, ne } from 'drizzle-orm'
 import { slugify } from '@/lib/utils'
+import { z } from 'zod'
+
+const createEventSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(300),
+  description: z.string().optional().nullable(),
+  event_type_id: z.number().int().positive().optional().nullable(),
+  client_id: z.number().int().positive().optional().nullable(),
+  status: z.string().optional(),
+  priority: z.string().optional(),
+  start_date: z.string().min(1, 'Start date is required'),
+  end_date: z.string().min(1, 'End date is required'),
+  venue_name: z.string().optional().nullable(),
+  venue_address: z.string().optional().nullable(),
+  venue_city: z.string().optional().nullable(),
+  venue_country: z.string().optional().nullable(),
+  expected_attendees: z.number().int().positive().optional().nullable(),
+  budget_estimated: z.number().int().min(0).optional().nullable(),
+  notes: z.string().optional().nullable(),
+})
 
 export async function GET(req: NextRequest) {
   try {
@@ -23,17 +42,17 @@ export async function GET(req: NextRequest) {
     const sort = url.get('sort') || 'created_at'
     const order = url.get('order') || 'desc'
 
-    const conditions = []
+    // Exclude archived events by default (soft-delete filtering)
+    const conditions = [ne(events.status, 'archived')]
     if (status) conditions.push(eq(events.status, status))
     if (type_id) conditions.push(eq(events.event_type_id, parseInt(type_id)))
     if (client_id) conditions.push(eq(events.client_id, parseInt(client_id)))
     if (search) {
-      conditions.push(
-        or(
-          ilike(events.title, `%${search}%`),
-          ilike(events.venue_name, `%${search}%`)
-        )
+      const searchFilter = or(
+        ilike(events.title, `%${search}%`),
+        ilike(events.venue_name, `%${search}%`)
       )
+      if (searchFilter) conditions.push(searchFilter)
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined
@@ -99,11 +118,11 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { title, description, event_type_id, client_id, status: eventStatus, priority, start_date, end_date, venue_name, venue_address, venue_city, venue_country, expected_attendees, budget_estimated, notes } = body
-
-    if (!title || !start_date || !end_date) {
-      return NextResponse.json({ error: 'Title, start date, and end date are required' }, { status: 400 })
+    const parsed = createEventSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues[0].message, details: parsed.error.issues }, { status: 400 })
     }
+    const { title, description, event_type_id, client_id, status: eventStatus, priority, start_date, end_date, venue_name, venue_address, venue_city, venue_country, expected_attendees, budget_estimated, notes } = parsed.data
 
     // Generate unique slug
     let slug = slugify(title)

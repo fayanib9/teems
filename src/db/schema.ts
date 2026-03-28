@@ -130,6 +130,8 @@ export const events = pgTable('events', {
   currency: varchar('currency', { length: 3 }).default('SAR'),
   notes: text('notes'),
   cover_image_path: text('cover_image_path'),
+  health_score: varchar('health_score', { length: 10 }).default('green'), // green, amber, red
+  completion_percentage: integer('completion_percentage').default(0),
   created_by: integer('created_by').references(() => users.id),
   updated_by: integer('updated_by').references(() => users.id),
   created_at: timestamp('created_at').defaultNow(),
@@ -192,6 +194,7 @@ export const tasks = pgTable('tasks', {
   estimated_hours: integer('estimated_hours'),
   actual_hours: integer('actual_hours'),
   sort_order: integer('sort_order').default(0),
+  version: integer('version').notNull().default(1), // optimistic locking
   created_by: integer('created_by').references(() => users.id),
   created_at: timestamp('created_at').defaultNow(),
   updated_at: timestamp('updated_at').defaultNow(),
@@ -374,14 +377,17 @@ export const documents = pgTable('documents', {
   file_size: integer('file_size'),
   mime_type: varchar('mime_type', { length: 100 }),
   category: varchar('category', { length: 30 }),
+  visibility: varchar('visibility', { length: 20 }).default('internal'), // internal, client, all
   version: integer('version').default(1),
   parent_document_id: integer('parent_document_id'),
+  folder: varchar('folder', { length: 200 }),
   uploaded_by: integer('uploaded_by').references(() => users.id),
   is_archived: boolean('is_archived').default(false),
   created_at: timestamp('created_at').defaultNow(),
   updated_at: timestamp('updated_at').defaultNow(),
 }, (table) => [
   index('documents_event_idx').on(table.event_id),
+  index('documents_visibility_idx').on(table.visibility),
 ])
 
 // ─── Approvals ──────────────────────────────────────────────────
@@ -412,6 +418,7 @@ export const approval_steps = pgTable('approval_steps', {
   status: varchar('status', { length: 20 }).default('pending'),
   comment: text('comment'),
   decided_at: timestamp('decided_at'),
+  version: integer('version').notNull().default(1), // optimistic locking
   created_at: timestamp('created_at').defaultNow(),
 }, (table) => [
   index('approval_steps_approval_idx').on(table.approval_id),
@@ -533,3 +540,335 @@ export const email_templates = pgTable('email_templates', {
   is_active: boolean('is_active').default(true),
   updated_at: timestamp('updated_at').defaultNow(),
 })
+
+// ─── Tools: Plan Generator ─────────────────────────────────────
+
+export const plan_roles = pgTable('plan_roles', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 100 }).notNull().unique(),
+  color: varchar('color', { length: 7 }),
+  description: text('description'),
+  is_active: boolean('is_active').default(true),
+  created_at: timestamp('created_at').defaultNow(),
+})
+
+export const plan_templates = pgTable('plan_templates', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 200 }).notNull(),
+  description: text('description'),
+  event_type: varchar('event_type', { length: 50 }),
+  min_attendees: integer('min_attendees'),
+  max_attendees: integer('max_attendees'),
+  is_default: boolean('is_default').default(false),
+  is_active: boolean('is_active').default(true),
+  created_at: timestamp('created_at').defaultNow(),
+  updated_at: timestamp('updated_at').defaultNow(),
+})
+
+export const plan_template_phases = pgTable('plan_template_phases', {
+  id: serial('id').primaryKey(),
+  template_id: integer('template_id').notNull().references(() => plan_templates.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 200 }).notNull(),
+  sort_order: integer('sort_order').notNull(),
+  color: varchar('color', { length: 7 }),
+  icon: varchar('icon', { length: 50 }),
+  created_at: timestamp('created_at').defaultNow(),
+}, (table) => [
+  index('plan_template_phases_template_idx').on(table.template_id),
+])
+
+export const plan_template_tasks = pgTable('plan_template_tasks', {
+  id: serial('id').primaryKey(),
+  phase_id: integer('phase_id').notNull().references(() => plan_template_phases.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 300 }).notNull(),
+  duration_days: integer('duration_days').notNull().default(5),
+  role: varchar('role', { length: 100 }),
+  is_optional: boolean('is_optional').default(false),
+  dependencies: text('dependencies'),
+  sort_order: integer('sort_order').notNull(),
+  description: text('description'),
+}, (table) => [
+  index('plan_template_tasks_phase_idx').on(table.phase_id),
+])
+
+export const plan_rules = pgTable('plan_rules', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 200 }).notNull(),
+  description: text('description'),
+  category: varchar('category', { length: 50 }).notNull(),
+  condition: text('condition').notNull(),
+  actions: text('actions').notNull(),
+  priority: integer('priority').notNull().default(100),
+  is_active: boolean('is_active').default(true),
+  created_at: timestamp('created_at').defaultNow(),
+  updated_at: timestamp('updated_at').defaultNow(),
+}, (table) => [
+  index('plan_rules_category_idx').on(table.category),
+  index('plan_rules_active_idx').on(table.is_active),
+])
+
+export const generated_plans = pgTable('generated_plans', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 300 }).notNull(),
+  client_name: varchar('client_name', { length: 200 }).notNull(),
+  event_id: integer('event_id').references(() => events.id, { onDelete: 'set null' }),
+  form_data: text('form_data').notNull(),
+  template_used: varchar('template_used', { length: 200 }),
+  complexity_score: integer('complexity_score'),
+  plan_data: text('plan_data'),
+  risks: text('risks'),
+  recommendations: text('recommendations'),
+  version: integer('version').notNull().default(1),
+  status: varchar('status', { length: 20 }).default('generated'),
+  created_by: integer('created_by').references(() => users.id),
+  created_at: timestamp('created_at').defaultNow(),
+  updated_at: timestamp('updated_at').defaultNow(),
+}, (table) => [
+  index('generated_plans_event_idx').on(table.event_id),
+  index('generated_plans_creator_idx').on(table.created_by),
+  index('generated_plans_status_idx').on(table.status),
+])
+
+export const generated_plan_tasks = pgTable('generated_plan_tasks', {
+  id: serial('id').primaryKey(),
+  plan_id: integer('plan_id').notNull().references(() => generated_plans.id, { onDelete: 'cascade' }),
+  phase_name: varchar('phase_name', { length: 200 }).notNull(),
+  phase_color: varchar('phase_color', { length: 7 }),
+  phase_order: integer('phase_order'),
+  task_name: varchar('task_name', { length: 300 }).notNull(),
+  description: text('description'),
+  duration_days: integer('duration_days').notNull(),
+  start_date: timestamp('start_date'),
+  end_date: timestamp('end_date'),
+  role: varchar('role', { length: 100 }),
+  status: varchar('status', { length: 20 }).default('pending'),
+  dependencies: text('dependencies'),
+  is_critical_path: boolean('is_critical_path').default(false),
+  is_optional: boolean('is_optional').default(false),
+  sort_order: integer('sort_order').notNull(),
+  source: varchar('source', { length: 20 }),
+}, (table) => [
+  index('generated_plan_tasks_plan_idx').on(table.plan_id),
+])
+
+// ─── Tools: Budget Calculator ───────────────────────────────────
+
+export const budget_calculations = pgTable('budget_calculations', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 300 }).notNull(),
+  event_id: integer('event_id').references(() => events.id, { onDelete: 'set null' }),
+  form_data: text('form_data').notNull(),
+  total_estimated: integer('total_estimated').notNull(),
+  breakdown: text('breakdown').notNull(),
+  benchmarks: text('benchmarks'),
+  currency: varchar('currency', { length: 3 }).default('SAR'),
+  created_by: integer('created_by').references(() => users.id),
+  created_at: timestamp('created_at').defaultNow(),
+}, (table) => [
+  index('budget_calculations_event_idx').on(table.event_id),
+])
+
+export const budget_category_defaults = pgTable('budget_category_defaults', {
+  id: serial('id').primaryKey(),
+  category: varchar('category', { length: 50 }).notNull(),
+  label: varchar('label', { length: 100 }).notNull(),
+  base_cost_per_person: integer('base_cost_per_person').notNull(),
+  min_percentage: integer('min_percentage'),
+  max_percentage: integer('max_percentage'),
+  is_active: boolean('is_active').default(true),
+})
+
+// ─── Tools: Vendor Matcher ──────────────────────────────────────
+
+export const vendor_match_results = pgTable('vendor_match_results', {
+  id: serial('id').primaryKey(),
+  event_id: integer('event_id').references(() => events.id, { onDelete: 'set null' }),
+  criteria: text('criteria').notNull(),
+  matches: text('matches').notNull(),
+  created_by: integer('created_by').references(() => users.id),
+  created_at: timestamp('created_at').defaultNow(),
+})
+
+export const vendor_match_weights = pgTable('vendor_match_weights', {
+  id: serial('id').primaryKey(),
+  criterion: varchar('criterion', { length: 100 }).notNull().unique(),
+  weight: integer('weight').notNull().default(50),
+  is_active: boolean('is_active').default(true),
+  description: text('description'),
+})
+
+// ─── Tools: Risk Assessor ───────────────────────────────────────
+
+export const risk_assessments = pgTable('risk_assessments', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 300 }).notNull(),
+  event_id: integer('event_id').references(() => events.id, { onDelete: 'set null' }),
+  form_data: text('form_data').notNull(),
+  overall_risk_level: varchar('overall_risk_level', { length: 20 }).notNull(),
+  risks: text('risks').notNull(),
+  mitigations: text('mitigations'),
+  score: integer('score'),
+  created_by: integer('created_by').references(() => users.id),
+  created_at: timestamp('created_at').defaultNow(),
+}, (table) => [
+  index('risk_assessments_event_idx').on(table.event_id),
+])
+
+export const risk_rules = pgTable('risk_rules', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 200 }).notNull(),
+  category: varchar('category', { length: 50 }).notNull(),
+  condition: text('condition').notNull(),
+  risk_output: text('risk_output').notNull(),
+  priority: integer('priority').notNull().default(100),
+  is_active: boolean('is_active').default(true),
+  created_at: timestamp('created_at').defaultNow(),
+  updated_at: timestamp('updated_at').defaultNow(),
+})
+
+// ─── Invite Tokens ─────────────────────────────────────────────
+
+export const invite_tokens = pgTable('invite_tokens', {
+  id: serial('id').primaryKey(),
+  email: varchar('email', { length: 255 }).notNull(),
+  token: varchar('token', { length: 255 }).notNull().unique(),
+  role_id: integer('role_id').references(() => roles.id),
+  event_id: integer('event_id').references(() => events.id),
+  invited_by: integer('invited_by').references(() => users.id),
+  expires_at: timestamp('expires_at').notNull(),
+  accepted_at: timestamp('accepted_at'),
+  is_used: boolean('is_used').default(false),
+  created_at: timestamp('created_at').defaultNow(),
+}, (table) => [
+  index('invite_tokens_email_idx').on(table.email),
+  index('invite_tokens_invited_by_idx').on(table.invited_by),
+])
+
+// ─── Change Requests ───────────────────────────────────────────
+
+export const change_requests = pgTable('change_requests', {
+  id: serial('id').primaryKey(),
+  event_id: integer('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description'),
+  change_type: varchar('change_type', { length: 50 }).notNull(),
+  impact_assessment: text('impact_assessment'),
+  requested_by: integer('requested_by').references(() => users.id),
+  status: varchar('status', { length: 50 }).default('pending'),
+  approved_by: integer('approved_by').references(() => users.id),
+  approved_at: timestamp('approved_at'),
+  created_at: timestamp('created_at').defaultNow(),
+  updated_at: timestamp('updated_at').defaultNow(),
+}, (table) => [
+  index('change_requests_event_idx').on(table.event_id),
+  index('change_requests_status_idx').on(table.status),
+  index('change_requests_requested_by_idx').on(table.requested_by),
+])
+
+// ─── Lessons Learned ───────────────────────────────────────────
+
+export const lessons_learned = pgTable('lessons_learned', {
+  id: serial('id').primaryKey(),
+  event_id: integer('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
+  category: varchar('category', { length: 100 }).notNull(),
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description').notNull(),
+  impact: varchar('impact', { length: 50 }),
+  recommendation: text('recommendation'),
+  created_by: integer('created_by').references(() => users.id),
+  created_at: timestamp('created_at').defaultNow(),
+}, (table) => [
+  index('lessons_learned_event_idx').on(table.event_id),
+  index('lessons_learned_category_idx').on(table.category),
+])
+
+// ─── Time Entries ─────────────────────────────────────────────
+
+export const time_entries = pgTable('time_entries', {
+  id: serial('id').primaryKey(),
+  task_id: integer('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  user_id: integer('user_id').notNull().references(() => users.id),
+  hours: integer('hours').notNull(), // stored as minutes for precision
+  description: text('description'),
+  date: timestamp('date').notNull(),
+  created_at: timestamp('created_at').defaultNow(),
+}, (table) => [
+  index('time_entries_task_idx').on(table.task_id),
+  index('time_entries_user_idx').on(table.user_id),
+])
+
+// ─── Task Baselines ──────────────────────────────────────────
+
+export const task_baselines = pgTable('task_baselines', {
+  id: serial('id').primaryKey(),
+  event_id: integer('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
+  task_id: integer('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  baseline_start_date: timestamp('baseline_start_date'),
+  baseline_end_date: timestamp('baseline_end_date'),
+  baseline_number: integer('baseline_number').notNull().default(1),
+  created_at: timestamp('created_at').defaultNow(),
+}, (table) => [
+  index('task_baselines_event_idx').on(table.event_id),
+  index('task_baselines_task_idx').on(table.task_id),
+])
+
+// ─── RACI Assignments ─────────────────────────────────────────
+
+export const raci_assignments = pgTable('raci_assignments', {
+  id: serial('id').primaryKey(),
+  event_id: integer('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
+  task_id: integer('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  user_id: integer('user_id').notNull().references(() => users.id),
+  raci_type: varchar('raci_type', { length: 20 }).notNull(), // responsible, accountable, consulted, informed
+  created_at: timestamp('created_at').defaultNow(),
+}, (table) => [
+  uniqueIndex('raci_unique_idx').on(table.event_id, table.task_id, table.user_id),
+  index('raci_event_idx').on(table.event_id),
+])
+
+// ─── Event Checklists ──────────────────────────────────────────
+
+export const event_checklist_items = pgTable('event_checklist_items', {
+  id: serial('id').primaryKey(),
+  event_id: integer('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
+  stage: varchar('stage', { length: 50 }).notNull(),
+  item_name: varchar('item_name', { length: 255 }).notNull(),
+  is_completed: boolean('is_completed').default(false),
+  completed_by: integer('completed_by').references(() => users.id),
+  completed_at: timestamp('completed_at'),
+  is_required: boolean('is_required').default(true),
+  sort_order: integer('sort_order').default(0),
+  created_at: timestamp('created_at').defaultNow(),
+}, (table) => [
+  index('checklist_items_event_idx').on(table.event_id),
+  index('checklist_items_stage_idx').on(table.stage),
+])
+
+// ─── User Preferences ──────────────────────────────────────────
+
+export const user_preferences = pgTable('user_preferences', {
+  id: serial('id').primaryKey(),
+  user_id: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }).unique(),
+  items_per_page: integer('items_per_page').default(25),
+  date_format: varchar('date_format', { length: 20 }).default('dd/mm/yyyy'),
+  notify_task_assigned: boolean('notify_task_assigned').default(true),
+  notify_approval_needed: boolean('notify_approval_needed').default(true),
+  notify_deadline: boolean('notify_deadline').default(true),
+  theme: varchar('theme', { length: 20 }).default('light'),
+  created_at: timestamp('created_at').defaultNow(),
+  updated_at: timestamp('updated_at').defaultNow(),
+})
+
+// ─── Recently Viewed ───────────────────────────────────────────
+
+export const recently_viewed = pgTable('recently_viewed', {
+  id: serial('id').primaryKey(),
+  user_id: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  resource_type: varchar('resource_type', { length: 50 }).notNull(),
+  resource_id: integer('resource_id').notNull(),
+  resource_name: varchar('resource_name', { length: 255 }).notNull(),
+  viewed_at: timestamp('viewed_at').defaultNow(),
+}, (table) => [
+  index('recently_viewed_user_idx').on(table.user_id),
+  index('recently_viewed_resource_idx').on(table.resource_type, table.resource_id),
+])

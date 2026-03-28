@@ -3,6 +3,17 @@ import { getSession, hasPermission } from '@/lib/auth'
 import { db } from '@/db'
 import { speakers, event_speakers } from '@/db/schema'
 import { eq, desc, count, sql } from 'drizzle-orm'
+import { z } from 'zod'
+
+const createSpeakerSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(200),
+  title: z.string().optional().nullable(),
+  organization: z.string().optional().nullable(),
+  bio: z.string().optional().nullable(),
+  email: z.string().email().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  website: z.string().optional().nullable(),
+})
 
 export async function GET(req: NextRequest) {
   try {
@@ -40,16 +51,20 @@ export async function POST(req: NextRequest) {
     if (!hasPermission(session, 'speakers', 'create')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     const body = await req.json()
-    if (!body.name) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+    const parsed = createSpeakerSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues[0].message, details: parsed.error.issues }, { status: 400 })
+    }
+    const data = parsed.data
 
     const [speaker] = await db.insert(speakers).values({
-      name: body.name,
-      title: body.title || null,
-      organization: body.organization || null,
-      bio: body.bio || null,
-      email: body.email || null,
-      phone: body.phone || null,
-      website: body.website || null,
+      name: data.name,
+      title: data.title || null,
+      organization: data.organization || null,
+      bio: data.bio || null,
+      email: data.email || null,
+      phone: data.phone || null,
+      website: data.website || null,
     }).returning()
 
     return NextResponse.json({ data: speaker }, { status: 201 })

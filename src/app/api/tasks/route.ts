@@ -2,8 +2,24 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession, hasPermission } from '@/lib/auth'
 import { db } from '@/db'
 import { tasks, users, events, milestones } from '@/db/schema'
-import { eq, and, ilike, or, desc, asc, count, sql } from 'drizzle-orm'
+import { eq, and, ilike, or, desc, asc, count, sql, ne } from 'drizzle-orm'
 import { logActivity } from '@/lib/activity'
+import { notifyTaskAssigned } from '@/lib/notify'
+import { z } from 'zod'
+
+const createTaskSchema = z.object({
+  event_id: z.number().int().positive('Event is required'),
+  title: z.string().min(1, 'Title is required').max(300),
+  milestone_id: z.number().int().positive().optional().nullable(),
+  parent_task_id: z.number().int().positive().optional().nullable(),
+  description: z.string().optional().nullable(),
+  status: z.string().optional(),
+  priority: z.string().optional(),
+  assigned_to: z.number().int().positive().optional().nullable(),
+  due_date: z.string().optional().nullable(),
+  start_date: z.string().optional().nullable(),
+  estimated_hours: z.number().int().min(0).optional().nullable(),
+})
 
 export async function GET(req: NextRequest) {
   try {
@@ -23,7 +39,8 @@ export async function GET(req: NextRequest) {
     const search = url.get('search')
     const my_tasks = url.get('my_tasks')
 
-    const conditions = []
+    // Exclude cancelled tasks by default (soft-delete filtering)
+    const conditions = [ne(tasks.status, 'cancelled')]
     if (status) conditions.push(eq(tasks.status, status))
     if (priority) conditions.push(eq(tasks.priority, priority))
     if (event_id) conditions.push(eq(tasks.event_id, parseInt(event_id)))
@@ -31,7 +48,7 @@ export async function GET(req: NextRequest) {
     if (my_tasks === 'true') conditions.push(eq(tasks.assigned_to, session.id))
     if (search) conditions.push(ilike(tasks.title, `%${search}%`))
 
-    const where = conditions.length > 0 ? and(...conditions) : undefined
+    const where = and(...conditions)
 
     const [totalResult] = await db.select({ count: count() }).from(tasks).where(where)
 
@@ -85,11 +102,11 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { event_id, milestone_id, parent_task_id, title, description, status: taskStatus, priority, assigned_to, due_date, start_date, estimated_hours } = body
-
-    if (!event_id || !title) {
-      return NextResponse.json({ error: 'Event and title are required' }, { status: 400 })
+    const parsed = createTaskSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues[0].message, details: parsed.error.issues }, { status: 400 })
     }
+    const { event_id, milestone_id, parent_task_id, title, description, status: taskStatus, priority, assigned_to, due_date, start_date, estimated_hours } = parsed.data
 
     const [task] = await db.insert(tasks).values({
       event_id,
@@ -107,6 +124,14 @@ export async function POST(req: NextRequest) {
     }).returning()
 
     logActivity({ userId: session.id, action: 'created', resource: 'task', resourceId: task.id, eventId: event_id, details: JSON.stringify({ title }) }).catch(() => {})
+
+    // Notify assignee if task is assigned to someone other than the creator
+    if (assigned_to && assigned_to !== session.id) {
+      const eventRow = await db.select({ title: events.title }).from(events).where(eq(events.id, event_id)).limit(1)
+      const eventTitle = eventRow[0]?.title || 'Unknown Event'
+      const assignerName = `${session.first_name} ${session.last_name}`
+      notifyTaskAssigned(assigned_to, title, eventTitle, event_id, assignerName).catch(() => {})
+    }
 
     return NextResponse.json({ data: task }, { status: 201 })
   } catch (error) {

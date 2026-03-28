@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -79,6 +80,12 @@ export default function LoginPage() {
         <Button type="submit" className="w-full" loading={loading}>
           Sign in
         </Button>
+
+        <div className="text-center">
+          <Link href="/forgot-password" className="text-sm text-primary-500 hover:text-primary-600">
+            Forgot your password?
+          </Link>
+        </div>
       </form>
     </div>
   )

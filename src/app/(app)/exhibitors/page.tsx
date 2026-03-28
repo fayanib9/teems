@@ -41,6 +41,7 @@ export default async function ExhibitorsPage() {
         { key: 'industry', style: 'subtitle' },
         { key: 'contact_name', style: 'caption' },
       ]}
+      emptyDescription="Manage exhibition booth holders and their requirements"
     />
   )
 }

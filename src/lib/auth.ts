@@ -5,7 +5,18 @@ import { db } from '@/db'
 import { users, roles, role_permissions, permissions } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'teems-dev-secret'
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('JWT_SECRET environment variable is required in production.')
+    }
+    // Dev-only fallback — NEVER use in production
+    return 'teems-dev-secret-NOT-FOR-PRODUCTION'
+  }
+  return secret
+}
+const JWT_SECRET: string = getJwtSecret()
 const COOKIE_NAME = 'teems_token'
 const TOKEN_EXPIRY = '7d'
 

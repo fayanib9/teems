@@ -43,6 +43,7 @@ export default async function VendorsPage() {
         { key: 'category', style: 'caption', transform: 'replace_underscores' },
         { key: 'contact_name', style: 'subtitle' },
       ]}
+      emptyDescription="Manage your event suppliers, caterers, and service providers"
     />
   )
 }

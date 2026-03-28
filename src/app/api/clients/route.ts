@@ -3,6 +3,19 @@ import { getSession, hasPermission } from '@/lib/auth'
 import { db } from '@/db'
 import { clients, events } from '@/db/schema'
 import { eq, ilike, or, desc, count, sql } from 'drizzle-orm'
+import { z } from 'zod'
+
+const createClientSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(200),
+  contact_name: z.string().optional().nullable(),
+  email: z.string().email().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  country: z.string().optional().nullable(),
+  website: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+})
 
 export async function GET(req: NextRequest) {
   try {
@@ -82,11 +95,11 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { name, contact_name, email, phone, address, city, country, website, notes } = body
-
-    if (!name) {
-      return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+    const parsed = createClientSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues[0].message, details: parsed.error.issues }, { status: 400 })
     }
+    const { name, contact_name, email, phone, address, city, country, website, notes } = parsed.data
 
     const [client] = await db.insert(clients).values({
       name,

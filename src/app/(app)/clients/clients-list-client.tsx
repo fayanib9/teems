@@ -139,7 +139,7 @@ export function ClientsListClient({ clients, canCreate, canEdit, canDelete }: Pr
         <EmptyState
           icon={Building2}
           title="No clients found"
-          description={search ? 'Try adjusting your search' : 'Add your first client to link them to events'}
+          description={search ? 'Try adjusting your search' : 'Keep track of your event clients and their details'}
           action={canCreate ? { label: 'Add Client', onClick: openCreate } : undefined}
         />
       ) : (

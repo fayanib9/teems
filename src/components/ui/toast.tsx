@@ -50,7 +50,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts((prev) => [...prev, { id, type, message }])
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id))
-    }, 4000)
+    }, 5000)
   }, [])
 
   const removeToast = useCallback((id: string) => {
@@ -60,7 +60,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast: addToast }}>
       {children}
-      <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
+      <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
         {toasts.map((t) => {
           const Icon = icons[t.type] || Info
           return (

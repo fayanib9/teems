@@ -1,40 +1,57 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import {
-  CalendarDays, FileText, CheckSquare, Truck, Mic, Presentation, MapPin,
-  LogOut, Menu, X, Bell, Home, User,
+  CalendarDays, FileText, CheckSquare, Mic, MapPin,
+  LogOut, Menu, X, Home, User, Plane, Bell,
+  MessageSquare, GitBranch, ShoppingCart, Info, Star,
 } from 'lucide-react'
 import { ToastProvider } from '@/components/ui/toast'
 import type { SessionUser } from '@/lib/auth'
 
-type NavItem = { label: string; href: string; icon: typeof Home }
+type NavItem = { label: string; href: string; icon: typeof Home; badgeKey?: string }
 
 const PORTAL_NAV: Record<string, NavItem[]> = {
   client: [
-    { label: 'Overview', href: '/portal', icon: Home },
+    { label: 'Dashboard', href: '/portal', icon: Home },
     { label: 'My Events', href: '/portal/events', icon: CalendarDays },
     { label: 'Documents', href: '/portal/documents', icon: FileText },
-    { label: 'Approvals', href: '/portal/approvals', icon: CheckSquare },
+    { label: 'Approvals', href: '/portal/approvals', icon: CheckSquare, badgeKey: 'approvals' },
+    { label: 'Messages', href: '/portal/messages', icon: MessageSquare, badgeKey: 'messages' },
+    { label: 'Change Requests', href: '/portal/change-requests', icon: GitBranch },
+    { label: 'Feedback', href: '/portal/feedback', icon: Star },
+    { label: 'Profile', href: '/portal/profile', icon: User },
   ],
   vendor: [
-    { label: 'Overview', href: '/portal', icon: Home },
+    { label: 'Dashboard', href: '/portal', icon: Home },
     { label: 'My Events', href: '/portal/events', icon: CalendarDays },
     { label: 'Documents', href: '/portal/documents', icon: FileText },
+    { label: 'Messages', href: '/portal/messages', icon: MessageSquare, badgeKey: 'messages' },
+    { label: 'Feedback', href: '/portal/feedback', icon: Star },
+    { label: 'Profile', href: '/portal/profile', icon: User },
   ],
   speaker: [
-    { label: 'Overview', href: '/portal', icon: Home },
+    { label: 'Dashboard', href: '/portal', icon: Home },
     { label: 'My Sessions', href: '/portal/sessions', icon: Mic },
+    { label: 'Travel & Logistics', href: '/portal/travel', icon: Plane },
     { label: 'Documents', href: '/portal/documents', icon: FileText },
+    { label: 'Messages', href: '/portal/messages', icon: MessageSquare, badgeKey: 'messages' },
+    { label: 'Event Info', href: '/portal/event-info', icon: Info },
+    { label: 'Feedback', href: '/portal/feedback', icon: Star },
     { label: 'Profile', href: '/portal/profile', icon: User },
   ],
   exhibitor: [
-    { label: 'Overview', href: '/portal', icon: Home },
+    { label: 'Dashboard', href: '/portal', icon: Home },
     { label: 'My Booth', href: '/portal/booth', icon: MapPin },
+    { label: 'Services', href: '/portal/services', icon: ShoppingCart },
     { label: 'Documents', href: '/portal/documents', icon: FileText },
+    { label: 'Messages', href: '/portal/messages', icon: MessageSquare, badgeKey: 'messages' },
+    { label: 'Event Info', href: '/portal/event-info', icon: Info },
+    { label: 'Feedback', href: '/portal/feedback', icon: Star },
+    { label: 'Profile', href: '/portal/profile', icon: User },
   ],
 }
 
@@ -45,16 +62,45 @@ const ROLE_LABELS: Record<string, string> = {
   exhibitor: 'Exhibitor Portal',
 }
 
+type BadgeCounts = {
+  approvals?: number
+  messages?: number
+}
+
 export function PortalShell({ user, children }: { user: SessionUser; children: React.ReactNode }) {
   const router = useRouter()
+  const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [badgeCounts, setBadgeCounts] = useState<BadgeCounts>({})
 
   const navItems = PORTAL_NAV[user.role_name] || PORTAL_NAV.client
   const portalLabel = ROLE_LABELS[user.role_name] || 'Portal'
 
+  // Fetch notification counts
+  useEffect(() => {
+    async function fetchCounts() {
+      try {
+        const res = await fetch('/api/portal/overview')
+        if (res.ok) {
+          const data = await res.json()
+          setBadgeCounts({
+            approvals: data.pending_approvals_count || 0,
+            messages: data.unread_messages_count || 0,
+          })
+        }
+      } catch {}
+    }
+    fetchCounts()
+  }, [pathname])
+
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
     router.push('/login')
+  }
+
+  function isActive(href: string) {
+    if (href === '/portal') return pathname === '/portal'
+    return pathname.startsWith(href)
   }
 
   return (
@@ -83,15 +129,26 @@ export function PortalShell({ user, children }: { user: SessionUser; children: R
           <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
             {navItems.map(item => {
               const Icon = item.icon
+              const active = isActive(item.href)
+              const badgeCount = item.badgeKey ? badgeCounts[item.badgeKey as keyof BadgeCounts] : undefined
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={() => setMobileOpen(false)}
-                  className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-text-secondary hover:bg-surface-tertiary hover:text-text-primary transition-colors"
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    active
+                      ? 'bg-primary-50 text-primary-700'
+                      : 'text-text-secondary hover:bg-surface-tertiary hover:text-text-primary'
+                  }`}
                 >
                   <Icon className="h-4 w-4" />
-                  {item.label}
+                  <span className="flex-1">{item.label}</span>
+                  {badgeCount && badgeCount > 0 ? (
+                    <span className="ml-auto min-w-[20px] h-5 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-semibold px-1.5">
+                      {badgeCount > 99 ? '99+' : badgeCount}
+                    </span>
+                  ) : null}
                 </Link>
               )
             })}
@@ -124,7 +181,10 @@ export function PortalShell({ user, children }: { user: SessionUser; children: R
               <Menu className="h-5 w-5" />
             </button>
             <div />
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-text-secondary hidden sm:block">
+                {user.first_name} {user.last_name}
+              </span>
               <div className="h-8 w-8 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xs font-medium">
                 {user.first_name.charAt(0)}{user.last_name.charAt(0)}
               </div>

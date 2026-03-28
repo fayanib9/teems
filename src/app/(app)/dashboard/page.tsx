@@ -1,10 +1,8 @@
 import { getSession } from '@/lib/auth'
 import { db } from '@/db'
-import { events, tasks, approvals } from '@/db/schema'
-import { eq, and, sql, count } from 'drizzle-orm'
-import { PageHeader } from '@/components/layout/page-header'
-import { StatCard } from '@/components/ui/stat-card'
-import { CalendarDays, CheckSquare, ClipboardCheck, Users, AlertTriangle, Clock } from 'lucide-react'
+import { events, tasks, approvals, clients, generated_plans, event_assignments } from '@/db/schema'
+import { eq, and, sql, count, desc } from 'drizzle-orm'
+import { DashboardClient } from './dashboard-client'
 
 export default async function DashboardPage() {
   const session = await getSession()
@@ -40,68 +38,110 @@ export default async function DashboardPage() {
     .select({ count: count() })
     .from(events)
 
+  // Recent events (last 5)
+  const recentEvents = await db
+    .select({
+      id: events.id,
+      title: events.title,
+      status: events.status,
+      start_date: events.start_date,
+      venue_name: events.venue_name,
+    })
+    .from(events)
+    .orderBy(desc(events.created_at))
+    .limit(5)
+
+  // My tasks due this week
+  const myTasks = await db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      status: tasks.status,
+      priority: tasks.priority,
+      due_date: tasks.due_date,
+      event_id: tasks.event_id,
+    })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.assigned_to, session.id),
+        sql`${tasks.status} != 'done'`,
+        sql`${tasks.status} != 'cancelled'`,
+        sql`${tasks.due_date} <= NOW() + INTERVAL '7 days'`
+      )
+    )
+    .orderBy(tasks.due_date)
+    .limit(5)
+
+  // Upcoming deadlines (tasks due in next 7 days, any user)
+  const upcomingDeadlines = await db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      status: tasks.status,
+      priority: tasks.priority,
+      due_date: tasks.due_date,
+      event_id: tasks.event_id,
+    })
+    .from(tasks)
+    .where(
+      and(
+        sql`${tasks.status} != 'done'`,
+        sql`${tasks.status} != 'cancelled'`,
+        sql`${tasks.due_date} >= NOW()`,
+        sql`${tasks.due_date} <= NOW() + INTERVAL '7 days'`
+      )
+    )
+    .orderBy(tasks.due_date)
+    .limit(5)
+
   const isExecutive = ['super_admin', 'admin', 'executive'].includes(session.role_name)
 
+  // Onboarding checks
+  const [clientCount] = await db.select({ count: count() }).from(clients)
+  const [planCount] = await db.select({ count: count() }).from(generated_plans)
+  const [assignmentCount] = await db.select({ count: count() }).from(event_assignments)
+
   return (
-    <>
-      <PageHeader
-        title={`Welcome back, ${session.first_name}`}
-        description={isExecutive ? 'Executive overview of all operations' : 'Here\'s what needs your attention today'}
-      />
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard
-          title="Active Events"
-          value={eventStats.count}
-          icon={CalendarDays}
-        />
-        <StatCard
-          title="My Tasks"
-          value={taskStats.count}
-          icon={CheckSquare}
-        />
-        <StatCard
-          title="Due Soon"
-          value={tasksDue.count}
-          icon={Clock}
-        />
-        <StatCard
-          title="Pending Approvals"
-          value={pendingApprovals.count}
-          icon={ClipboardCheck}
-        />
-      </div>
-
-      {isExecutive && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-          <StatCard
-            title="Total Events"
-            value={totalEvents.count}
-            subtitle="All time"
-            icon={CalendarDays}
-          />
-          <StatCard
-            title="Overview"
-            value="—"
-            subtitle="More dashboard widgets coming soon"
-            icon={AlertTriangle}
-          />
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Events */}
-        <div className="bg-surface rounded-xl border border-border p-5">
-          <h2 className="text-base font-semibold text-text-primary mb-4">Recent Events</h2>
-          <p className="text-sm text-text-secondary">Events will appear here once created.</p>
-        </div>
-
-        {/* My Tasks */}
-        <div className="bg-surface rounded-xl border border-border p-5">
-          <h2 className="text-base font-semibold text-text-primary mb-4">My Tasks</h2>
-          <p className="text-sm text-text-secondary">Your assigned tasks will appear here.</p>
-        </div>
-      </div>
-    </>
+    <DashboardClient
+      onboarding={{
+        hasClients: clientCount.count > 0,
+        hasEvents: totalEvents.count > 0,
+        hasPlans: planCount.count > 0,
+        hasTeamAssignments: assignmentCount.count > 0,
+      }}
+      user={{ first_name: session.first_name }}
+      isExecutive={isExecutive}
+      stats={{
+        activeEvents: eventStats.count,
+        myTasks: taskStats.count,
+        dueSoon: tasksDue.count,
+        pendingApprovals: pendingApprovals.count,
+        totalEvents: totalEvents.count,
+      }}
+      recentEvents={recentEvents.map(e => ({
+        id: e.id,
+        title: e.title,
+        status: e.status,
+        start_date: e.start_date ? e.start_date.toISOString() : null,
+        venue_name: e.venue_name,
+      }))}
+      myTasksList={myTasks.map(t => ({
+        id: t.id,
+        title: t.title,
+        status: t.status || 'todo',
+        priority: t.priority || 'medium',
+        due_date: t.due_date ? t.due_date.toISOString() : null,
+        event_id: t.event_id,
+      }))}
+      upcomingDeadlines={upcomingDeadlines.map(t => ({
+        id: t.id,
+        title: t.title,
+        status: t.status || 'todo',
+        priority: t.priority || 'medium',
+        due_date: t.due_date ? t.due_date.toISOString() : null,
+        event_id: t.event_id,
+      }))}
+    />
   )
 }

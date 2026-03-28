@@ -42,6 +42,7 @@ export default async function SpeakersPage() {
         { key: 'title', style: 'subtitle' },
         { key: 'organization', style: 'caption' },
       ]}
+      emptyDescription="Track keynote speakers, panelists, and moderators"
     />
   )
 }

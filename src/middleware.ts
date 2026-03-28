@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import jwt from 'jsonwebtoken'
+import { csrfCheck } from '@/lib/csrf'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'teems-dev-secret'
-const PUBLIC_PATHS = ['/login', '/forgot-password', '/api/auth/login', '/api/health']
+const JWT_SECRET: string = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET is required in production') })() : 'teems-dev-secret-NOT-FOR-PRODUCTION')
+const PUBLIC_PATHS = ['/login', '/forgot-password', '/reset-password', '/api/auth/login', '/api/auth/forgot-password', '/api/auth/reset-password', '/api/health', '/invite', '/api/portal/invite/accept']
 const EXTERNAL_ROLES = ['client', 'vendor', 'speaker', 'exhibitor']
 
 function decodeToken(token: string): { userId: number; email: string; role_name?: string } | null {
@@ -72,6 +73,10 @@ export function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/dashboard', request.url))
     }
   }
+
+  // CSRF check for state-changing API requests (production only)
+  const csrfError = csrfCheck(request)
+  if (csrfError) return csrfError
 
   return NextResponse.next()
 }

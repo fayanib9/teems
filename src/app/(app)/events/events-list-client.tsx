@@ -98,14 +98,14 @@ export function EventsListClient({ events, eventTypes, pagination, filters, canC
           placeholder="All statuses"
           value={filters.status || ''}
           onChange={(e) => updateFilters({ status: e.target.value || undefined })}
-          className="w-40"
+          className="w-full sm:w-40"
         />
         <Select
           options={eventTypes.map(t => ({ value: String(t.id), label: t.name }))}
           placeholder="All types"
           value={filters.type_id || ''}
           onChange={(e) => updateFilters({ type_id: e.target.value || undefined })}
-          className="w-40"
+          className="w-full sm:w-40"
         />
       </div>
 
@@ -115,7 +115,7 @@ export function EventsListClient({ events, eventTypes, pagination, filters, canC
           icon={CalendarDays}
           title="No events found"
           description={filters.search || filters.status ? 'Try adjusting your filters' : 'Create your first event to get started'}
-          action={canCreate ? { label: 'New Event', onClick: () => router.push('/events/new') } : undefined}
+          action={canCreate ? { label: 'New Event', href: '/events/new' } : undefined}
         />
       ) : (
         <div className="space-y-3">
@@ -187,7 +187,7 @@ export function EventsListClient({ events, eventTypes, pagination, filters, canC
 
       {/* Pagination */}
       {pagination.pages > 1 && (
-        <div className="flex items-center justify-between mt-6 pt-4 border-t border-border">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-6 pt-4 border-t border-border">
           <p className="text-sm text-text-secondary">
             Showing {((pagination.page - 1) * pagination.limit) + 1}–{Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
           </p>

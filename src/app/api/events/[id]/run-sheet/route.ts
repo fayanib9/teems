@@ -73,7 +73,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await req.json()
-    const { item_id, status, notes } = body
+    const { item_id, status, notes, title, description, scheduled_time, duration_minutes, location, responsible_user_id } = body
 
     if (!item_id) return NextResponse.json({ error: 'item_id required' }, { status: 400 })
 
@@ -83,9 +83,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (status === 'completed') updates.completed_at = new Date()
     }
     if (notes !== undefined) updates.notes = notes
+    if (title !== undefined) updates.title = title
+    if (description !== undefined) updates.description = description
+    if (scheduled_time !== undefined) updates.scheduled_time = scheduled_time ? new Date(scheduled_time) : null
+    if (duration_minutes !== undefined) updates.duration_minutes = duration_minutes ? Number(duration_minutes) : null
+    if (location !== undefined) updates.location = location
+    if (responsible_user_id !== undefined) updates.responsible_user_id = responsible_user_id ? Number(responsible_user_id) : null
 
     const [item] = await db.update(run_sheet_items).set(updates).where(eq(run_sheet_items.id, Number(item_id))).returning()
     return NextResponse.json(item)
+  } catch (error) {
+    console.error('API error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const session = await getSession()
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const itemId = req.nextUrl.searchParams.get('item_id')
+    if (!itemId) return NextResponse.json({ error: 'item_id required' }, { status: 400 })
+
+    await db.delete(run_sheet_items).where(eq(run_sheet_items.id, Number(itemId)))
+    return NextResponse.json({ success: true })
   } catch (error) {
     console.error('API error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

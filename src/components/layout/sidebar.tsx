@@ -5,18 +5,24 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
-  LayoutDashboard, CalendarDays, CheckSquare, Calendar,
+  LayoutDashboard, CalendarDays, CheckSquare, Calendar, Clock,
   Building2, Store, Mic, Presentation, Users,
   FileText, ClipboardCheck, BarChart3,
   UserCog, Settings, History, X,
+  Wand2, Calculator, GitCompare, Scale, ShieldAlert,
+  LayoutTemplate, Workflow, UserCheck,
+  LayoutGrid, Users2, BookOpen,
 } from 'lucide-react'
 import type { SessionUser } from '@/lib/auth'
 
 const iconMap: Record<string, React.ElementType> = {
-  LayoutDashboard, CalendarDays, CheckSquare, Calendar,
+  LayoutDashboard, CalendarDays, CheckSquare, Calendar, Clock,
   Building2, Store, Mic, Presentation, Users,
   FileText, ClipboardCheck, BarChart3,
   UserCog, Settings, History,
+  Wand2, Calculator, GitCompare, Scale, ShieldAlert,
+  LayoutTemplate, Workflow, UserCheck,
+  LayoutGrid, Users2, BookOpen,
 }
 
 type SidebarProps = {
@@ -30,8 +36,10 @@ const navSections = [
     title: 'Main',
     items: [
       { label: 'Dashboard', href: '/dashboard', icon: 'LayoutDashboard' },
+      { label: 'Portfolio', href: '/portfolio', icon: 'LayoutGrid', permission: 'events:view' },
       { label: 'Events', href: '/events', icon: 'CalendarDays', permission: 'events:view' },
       { label: 'Tasks', href: '/tasks', icon: 'CheckSquare', permission: 'tasks:view' },
+      { label: 'Timesheets', href: '/timesheets', icon: 'Clock' },
       { label: 'Calendar', href: '/calendar', icon: 'Calendar' },
     ],
   },
@@ -50,7 +58,18 @@ const navSections = [
     items: [
       { label: 'Documents', href: '/documents', icon: 'FileText', permission: 'documents:view' },
       { label: 'Approvals', href: '/approvals', icon: 'ClipboardCheck', permission: 'approvals:view' },
+      { label: 'Resources', href: '/resources', icon: 'Users2', permission: 'teams:view' },
+      { label: 'Lessons', href: '/lessons', icon: 'BookOpen', permission: 'events:view' },
       { label: 'Reports', href: '/reports', icon: 'BarChart3', permission: 'reports:view' },
+    ],
+  },
+  {
+    title: 'Tools',
+    items: [
+      { label: 'Plan Generator', href: '/tools/planner', icon: 'Wand2', permission: 'tools:view' },
+      { label: 'Budget Calculator', href: '/tools/budget', icon: 'Calculator', permission: 'tools:view' },
+      { label: 'Vendor Matcher', href: '/tools/vendors', icon: 'Scale', permission: 'tools:view' },
+      { label: 'Risk Assessor', href: '/tools/risks', icon: 'ShieldAlert', permission: 'tools:view' },
     ],
   },
   {
@@ -59,6 +78,9 @@ const navSections = [
       { label: 'Users', href: '/users', icon: 'UserCog', permission: 'users:view' },
       { label: 'Activity Log', href: '/activity', icon: 'History', permission: 'settings:view' },
       { label: 'Settings', href: '/settings', icon: 'Settings', permission: 'settings:view' },
+      { label: 'Plan Templates', href: '/admin/plan-templates', icon: 'LayoutTemplate', permission: 'settings:view' },
+      { label: 'Plan Rules', href: '/admin/plan-rules', icon: 'Workflow', permission: 'settings:view' },
+      { label: 'Plan Roles', href: '/admin/plan-roles', icon: 'UserCheck', permission: 'settings:view' },
     ],
   },
 ]
@@ -97,7 +119,7 @@ export function Sidebar({ user, open, onClose }: SidebarProps) {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto py-3 px-3">
+        <nav data-tour="sidebar" className="flex-1 overflow-y-auto py-3 px-3">
           {navSections.map((section) => {
             const visibleItems = section.items.filter((item) => canSee(item.permission))
             if (visibleItems.length === 0) return null
@@ -116,8 +138,9 @@ export function Sidebar({ user, open, onClose }: SidebarProps) {
                       key={item.href}
                       href={item.href}
                       onClick={onClose}
+                      {...(item.label === 'Events' ? { 'data-tour': 'events' } : {})}
                       className={cn(
-                        'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
+                        'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150',
                         isActive
                           ? 'bg-primary-50 text-primary-700 font-medium'
                           : 'text-text-secondary hover:bg-surface-tertiary hover:text-text-primary'

@@ -3,6 +3,7 @@ import { getSession, requirePermission } from '@/lib/auth'
 import { db } from '@/db'
 import { approvals, approval_steps, events, users } from '@/db/schema'
 import { eq, desc, and, count } from 'drizzle-orm'
+import { notifyApprovalRequested } from '@/lib/notify'
 
 export async function GET(req: NextRequest) {
   try {
@@ -74,23 +75,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'At least one approver is required' }, { status: 400 })
     }
 
-    const [approval] = await db.insert(approvals).values({
-      title: title.trim(),
-      description: description || null,
-      type,
-      event_id: event_id ? Number(event_id) : null,
-      requested_by: session.id,
-      status: 'pending',
-    }).returning()
-
-    // Create approval steps in order
-    for (let i = 0; i < approver_ids.length; i++) {
-      await db.insert(approval_steps).values({
-        approval_id: approval.id,
-        step_order: i + 1,
-        approver_id: Number(approver_ids[i]),
+    // Use transaction to ensure approval + steps are created atomically
+    const approval = await db.transaction(async (tx) => {
+      const [created] = await tx.insert(approvals).values({
+        title: title.trim(),
+        description: description || null,
+        type,
+        event_id: event_id ? Number(event_id) : null,
+        requested_by: session.id,
         status: 'pending',
-      })
+      }).returning()
+
+      // Create approval steps in order
+      for (let i = 0; i < approver_ids.length; i++) {
+        await tx.insert(approval_steps).values({
+          approval_id: created.id,
+          step_order: i + 1,
+          approver_id: Number(approver_ids[i]),
+          status: 'pending',
+        })
+      }
+
+      return created
+    })
+
+    // Notify each approver
+    const requesterName = `${session.first_name} ${session.last_name}`
+    for (const approverId of approver_ids) {
+      notifyApprovalRequested(Number(approverId), approval.title, approval.id, requesterName).catch(() => {})
     }
 
     return NextResponse.json(approval, { status: 201 })
